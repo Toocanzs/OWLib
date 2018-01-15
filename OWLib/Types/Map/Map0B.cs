@@ -32,8 +32,8 @@ namespace OWLib.Types.Map {
         private Map0BExtra[] extra;
         public Map0BExtra[] Extra => extra;
 
-        public ulong ModelKey = 0;
-        public ulong MaterialKey = 0;
+        public ulong Model = 0;
+        public ulong ModelLook = 0;
 
         public void Read(Stream data) {
             using(BinaryReader reader = new BinaryReader(data, System.Text.Encoding.Default, true)) {

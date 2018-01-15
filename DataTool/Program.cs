@@ -6,12 +6,13 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using CASCLib;
+using DataTool.ConvertLogic;
 using DataTool.Flag;
 using DataTool.Helper;
 using OWLib;
-using STULib;
 using STULib.Types;
 using static DataTool.Helper.Logger;
+using static DataTool.Helper.STUHelper;
 using Logger = CASCLib.Logger;
 
 namespace DataTool {
@@ -160,6 +161,8 @@ namespace DataTool {
             Log("Mapping...");
             TrackedFiles[0x90] = new HashSet<ulong>();
             IO.MapCMF();
+            IO.LoadGUIDTable();
+            Sound.WwiseBank.GetReady();
 
             #region Key Detection
             if (!Flags.SkipKeys) {
@@ -173,12 +176,11 @@ namespace DataTool {
                         if (stream == null) {
                             continue;
                         }
-                        
-                        ISTU stu = ISTU.NewInstance(stream, BuildVersion);
-                        STUEncryptionKey ek = stu.Instances.OfType<STUEncryptionKey>().First();
-                        if (ek != null && !KeyService.keys.ContainsKey(ek.LongRevKey)) {
-                            KeyService.keys.Add(ek.LongRevKey, ek.KeyValue);
-                            Log("Added Encryption Key {0}, Value: {1}", ek.KeyNameProper, ek.Key);
+
+                        STUEncryptionKey encryptionKey = GetInstance<STUEncryptionKey>(key);
+                        if (encryptionKey != null && !KeyService.keys.ContainsKey(encryptionKey.LongRevKey)) {
+                            KeyService.keys.Add(encryptionKey.LongRevKey, encryptionKey.KeyValue);
+                            Log("Added Encryption Key {0}, Value: {1}", encryptionKey.KeyNameProper, encryptionKey.Key);
                         }
                     }
                 }
@@ -203,7 +205,7 @@ namespace DataTool {
         private static void PrintHelp(IEnumerable<Type> eTools) {
             Log();
             Log("Modes:");
-            Log("  {0, -20} | {1, -40}", "mode", "description");
+            Log("  {0, -23} | {1, -40}", "mode", "description");
             Log("".PadLeft(94, '-'));
             List<Type> tools = new List<Type>(eTools);
             tools.Sort(new ToolComparer());
@@ -216,18 +218,30 @@ namespace DataTool {
                 if (attrib.Description == null) {
                     desc = "";
                 }
-                Log("  {0, -20} | {1}", attrib.Keyword, desc);
+                Log("  {0, -23} | {1}", attrib.Keyword, desc);
             }
+
+            Dictionary<string, List<Type>> sortedTools = new Dictionary<string, List<Type>>();
             
             foreach (Type t in tools) {
                 ToolAttribute attrib = t.GetCustomAttribute<ToolAttribute>();
-                if (attrib.CustomFlags == null) continue;
+                if (attrib.Keyword == null) continue;
+                if (!attrib.Keyword.Contains("-")) continue;
+                
+                string result = attrib.Keyword.Split('-').First();
+                
+                if (!sortedTools.ContainsKey(result)) sortedTools[result] = new List<Type>();
+                sortedTools[result].Add(t);
+            }
+
+            foreach (KeyValuePair<string,List<Type>> toolType in sortedTools) {
+                Type firstTool = toolType.Value.FirstOrDefault();
+                ToolAttribute attrib = firstTool?.GetCustomAttribute<ToolAttribute>();
+                if (attrib?.CustomFlags == null) continue;
                 Type flags = attrib.CustomFlags;
-                if(typeof(ICLIFlags).IsAssignableFrom(flags)) {
-                    continue;
-                }
+                if (!typeof(ICLIFlags).IsAssignableFrom(attrib.CustomFlags)) continue;
                 Log();
-                Log("Flags for {0}", attrib.Keyword);
+                Log("Flags for {0}-*", toolType.Key);
                 typeof(FlagParser).GetMethod("FullHelp").MakeGenericMethod(flags).Invoke(null, new object[] { null, true });
             }
         }

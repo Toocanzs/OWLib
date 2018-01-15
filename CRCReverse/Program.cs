@@ -1,38 +1,34 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace CRCReverse {
     public class Crc32 {
-        readonly uint[] table;
+        public readonly uint[] Table;
 
-        public uint ComputeChecksum(byte[] bytes) {
-            uint crc = 0xffffffff;
-            for(int i = 0; i < bytes.Length; ++i) {
-                byte index = (byte)(((crc) & 0xff) ^ bytes[i]);
-                crc = (uint)((crc >> 8) ^ table[index]);
+        public uint ComputeChecksum(IEnumerable<byte> bytes, uint xorStart = 0xffffffff, uint xorEnd = 0xffffffff) {
+            uint crc = xorStart;
+            foreach (byte t in bytes) {
+                byte index = (byte)((crc & 0xff) ^ t);
+                crc = (crc >> 8) ^ Table[index];
             }
-            return ~crc;
+            return crc ^ xorEnd;
         }
-
-        public byte[] ComputeChecksumBytes(byte[] bytes) {
-            return BitConverter.GetBytes(ComputeChecksum(bytes));
-        }
-
-        public Crc32(uint poly=0xedb88320) {
-            table = new uint[256];
-            for(uint i = 0; i < table.Length; ++i) {
+        
+        public Crc32(uint poly = 0xedb88320) {
+            Table = new uint[256];
+            for (uint i = 0; i < Table.Length; ++i) {
                 uint temp = i;
-                for(int j = 8; j > 0; --j) {
-                    if((temp & 1) == 1) {
+                for (int j = 8; j > 0; --j) {
+                    if ((temp & 1) == 1) {
                         temp = (temp >> 1) ^ poly;
-                    }else {
+                    } else {
                         temp >>= 1;
                     }
                 }
-                table[i] = temp;
+                Table[i] = temp;
             }
         }
     }
@@ -53,29 +49,50 @@ namespace CRCReverse {
                 {0xF1CB3BA0, "m_text"},
                 {0x2C01908B, "m_level"},
                 {0x78A2AC5C, "m_stars"},
-                {0x8F736177, "m_rank"}
+                {0x8F736177, "m_rank"},
+                // {0x7236F6E3, "STUStatescriptGraph".ToLowerInvariant()}  // idk about this one so I'll disable it for speed
             };
-            List<uint> trialPolys = new List<uint> {0x814141AB, 0x32583499, 0x741B8CD7, 0x1EDC6F41, 0x04C11DB7, // normal?
-                0xEDB88320, 0x82F63B78, 0xEB31D82E, 0x992C1A4C, 0xD5828281,// reversed?
-                0xC0A0A0D5, 0x992C1A4C, 0xBA0DC66B, 0x8F6E37A0 // reverced reciprocal
-            };  // none of the standard thingers work
+            // knownValues = new Dictionary<uint, string> {  // old vals
+            //     {0xa6886a1, "STULootbox".ToLowerInvariant()},
+            //     {0x7ce5c1b2, "stuachievement"}
+            // };
 
-            KeyValuePair<uint, string> chosenPair = knownValues.SingleOrDefault(p => p.Value == "stulootbox");  // 99.9% this one good
-
-            // const uint start = uint.MaxValue; // after running for so long, stop, and set this value to where you ended
-            const uint start = 3947316757; // after running for so long, stop, and set this value to where you ended
-            
-            for (uint i = start; i < uint.MaxValue; i++) {  // not a joke, lets go
-            // for (uint i = start; i > 0 ; i--) {
-                int goodnessScale = 0;
-                foreach (KeyValuePair<uint,string> knownValue in knownValues) {
-                    uint trialHash = new Crc32(i).ComputeChecksum(Encoding.ASCII.GetBytes(knownValue.Value));
-                    if (trialHash == knownValue.Key) goodnessScale++;
-                }
-                if ((double) goodnessScale / knownValues.Count*100 > 50.0) {  // ok so I'm not acutally sure how many are correct
-                    Debugger.Break();  // good boi
-                }
+            Dictionary<string, byte[]> bytes = new Dictionary<string, byte[]>();  // precalc for lil bit of speed
+            foreach (KeyValuePair<uint, string> keyValuePair in knownValues) {
+                bytes[keyValuePair.Value] = Encoding.ASCII.GetBytes(keyValuePair.Value);
             }
+
+            int goodCount = knownValues.Count/2;
+            long counter = 0;
+            Crc32 crc32 = new Crc32(); // for this we only need to make the table once
+
+            const long start = 0;
+            const long end = (long) uint.MaxValue + 1;
+
+            Parallel.For(start, end, i => {
+                // i is start xor
+                // if (i != 0xffffffff) return;  // old hashes test
+                counter++;
+                
+                if (counter % 100000000 == 0) Console.Error.WriteLine($"(I'm at {counter}/{end})");
+                
+                Dictionary<uint, int> goodness = new Dictionary<uint, int>();  // end_xor: count
+                
+                foreach (KeyValuePair<uint, string> knownValue in knownValues) {
+                    uint trialHash = crc32.ComputeChecksum(bytes[knownValue.Value], (uint)i, 0);  // don't xor at the end, and i is start
+                    uint testEndXor = trialHash | knownValue.Key;  // get end xor
+                    if (!goodness.ContainsKey(testEndXor)) goodness[testEndXor] = 0;
+                    goodness[testEndXor]++;
+                }
+                foreach (KeyValuePair<uint,int> goodPair in goodness.OrderByDescending(x => x.Value).Where(x => x.Value >= goodCount)) {
+                    Console.Out.WriteLine($"Result: start_xor={i:X}, end_xor={goodPair.Key:X} (count: {goodPair.Value})");
+                    Console.Out.WriteLine("Trials:");
+                    foreach (KeyValuePair<uint, string> knownValue in knownValues) {
+                        uint trialHash = crc32.ComputeChecksum(bytes[knownValue.Value], (uint)i, goodPair.Key);
+                        Console.Out.WriteLine($"\t{knownValue.Value}: {trialHash:X}");
+                    }
+                }
+            });
         }
     }
 }

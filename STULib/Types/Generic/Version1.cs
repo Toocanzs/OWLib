@@ -1,19 +1,19 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 namespace STULib.Types.Generic {
     public static class Version1 {
-        public class STUHeader {
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        public struct STUHeader {
             public uint Magic;
-            public uint Version;
-            public STUInstanceRecord[] InstanceTable;
+            public uint InstanceCount;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         public struct STUInstanceRecord {
-            public uint Offset;
+            public int Offset;
             public uint Flags;
         }
-        
+
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         public struct STUArray {
             public long EntryCount;

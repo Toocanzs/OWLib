@@ -12,15 +12,14 @@ namespace OWLib.Types.Chunk {
             public ulong unknown2;
             public ulong unknown3;
             public ulong unknown4;
-            public ulong model_key;
+            public ulong Model;
         }
 
-        private Structure data;
-        public Structure Data => data;
+        public Structure Data { get; private set; }
 
         public void Parse(Stream input) {
             using (BinaryReader reader = new BinaryReader(input, System.Text.Encoding.Default, true)) {
-                data = reader.Read<Structure>();
+                Data = reader.Read<Structure>();
             }
         }
     }

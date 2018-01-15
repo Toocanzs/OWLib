@@ -18,6 +18,7 @@ using STULib.Types.Generic;
 using Version1 = STULib.Impl.Version1;
 using Version2 = STULib.Impl.Version2;
 using static DataTool.Helper.Logger;
+using InstanceData = STULib.Impl.Version2HashComparer.InstanceData;
 
 namespace STUExcavator {
     public enum SerializationType {
@@ -26,7 +27,8 @@ namespace STUExcavator {
         // ReSharper disable once InconsistentNaming
         STUv1 = 2,
         // ReSharper disable once InconsistentNaming
-        STUv2 = 3
+        STUv2 = 3,
+        MapData = 4
     }
     [JsonObject(MemberSerialization.OptOut)]
     public class AssetTypeSummary {
@@ -49,6 +51,7 @@ namespace STUExcavator {
     public class Program {
         public static Dictionary<ulong, MD5Hash> Files;
         public static Dictionary<ushort, HashSet<ulong>> TrackedFiles;
+        public static List<string> InvalidTypes;
         public static CASCConfig Config;
         public static CASCHandler CASC;
         // dawn of a new project
@@ -79,24 +82,25 @@ namespace STUExcavator {
             
             // prepare Version2Comparer
             Version2Comparer.InstanceJSON = STUHashTool.Program.LoadInstanceJson("RegisteredSTUTypes.json");
+            InvalidTypes = STUHashTool.Program.LoadInvalidTypes("IgnoredBrokenSTUs.txt");
             
             // wipe ISTU
             ISTU.Clear();
             
             // actual tool
             Dictionary<string, AssetTypeSummary> types = new Dictionary<string, AssetTypeSummary>();
+            CompileSTUs();
             
             foreach (KeyValuePair<ushort,HashSet<ulong>> keyValuePair in TrackedFiles.OrderBy(x => x.Key)) {
-                // wipe ISTU
-                ISTU.Clear();
-                
                 string type = keyValuePair.Key.ToString("X3");
+                if (type == "09C" || type == "062" || type == "077") continue;
                 Log($"Processing type: {type}");
                 types[type] = Excavate(keyValuePair.Key, keyValuePair.Value);
                 
                 IO.CreateDirectoryFromFile(Path.Combine(outputDir, type, "master.json"));
                 using (Stream masterFile =
                     File.OpenWrite(Path.Combine(outputDir, type, "master.json"))) {
+                    masterFile.SetLength(0);
                     string masterJson = JsonConvert.SerializeObject(types[type], Formatting.Indented);
                     using (TextWriter writer = new StreamWriter(masterFile)) {
                         writer.WriteLine(masterJson);
@@ -108,12 +112,65 @@ namespace STUExcavator {
                     string assetFile = Path.Combine(outputDir, type, "assets", $"{asset.GUID}.json");
                     IO.CreateDirectoryFromFile(assetFile);
                     using (Stream assetStream = File.OpenWrite(assetFile)) {
+                        assetStream.SetLength(0);
                         string assetJson = JsonConvert.SerializeObject(asset, Formatting.Indented);
                         using (TextWriter writer = new StreamWriter(assetStream)) {
                             writer.WriteLine(assetJson);
                         }
                     }
                 }
+            }
+        }
+
+        public static void CompileSTUs() {
+            StringBuilder sb = new StringBuilder();
+            HashSet<uint> doneEnums = new HashSet<uint>();
+            HashSet<uint> doneInstances = new HashSet<uint>();
+            foreach (KeyValuePair<uint, STUInstanceJSON> json in Version2Comparer.InstanceJSON) {
+                if (InvalidTypes.Contains(json.Value.Name)) continue;
+                InstanceData instanceData = Version2Comparer.GetData(json.Key);
+                if (instanceData == null) continue;
+                if (doneInstances.Contains(instanceData.Checksum)) continue;
+                doneInstances.Add(instanceData.Checksum);
+                ClassBuilder builder = new ClassBuilder(instanceData);
+                string @class = builder.Build(new Dictionary<uint, string>(),
+                    new Dictionary<uint, string>(), new Dictionary<uint, string>(), "STUExcavator.Types", false, true);
+                sb.AppendLine(@class);
+
+                foreach (FieldData field in instanceData.Fields) {
+                    if (!field.IsEnum && !field.IsEnumArray) continue;
+                    if (doneEnums.Contains(field.EnumChecksum)) continue;
+                    doneEnums.Add(field.EnumChecksum);
+                    EnumBuilder enumBuilder = new EnumBuilder(new STUEnumData {
+                        Type = STUHashTool.Program.GetSizeType(field.Size),
+                        Checksum = field.EnumChecksum
+                    });
+                    sb.AppendLine(enumBuilder.Build(new Dictionary<uint, string>(), "STUExcavator.Types.Enums", true));
+                }
+            }
+
+            CSharpCodeProvider provider = new CSharpCodeProvider();
+            CompilerParameters parameters = new CompilerParameters();
+            parameters.ReferencedAssemblies.Add("STULib.dll");
+            parameters.ReferencedAssemblies.Add("OWLib.dll");
+            parameters.GenerateInMemory = true;
+            CompilerResults results = provider.CompileAssemblyFromSource(parameters, sb.ToString());
+
+            if (results.Errors.HasErrors) {
+                StringBuilder sb2 = new StringBuilder();
+
+                foreach (CompilerError error in results.Errors) {
+                    sb2.AppendLine($"Error ({error.ErrorNumber}): {error.ErrorText}");
+                }
+
+                throw new InvalidOperationException(sb2.ToString());
+            }
+            
+            Assembly assembly = results.CompiledAssembly;
+            foreach (KeyValuePair<uint, STUInstanceJSON> json in Version2Comparer.InstanceJSON) {
+                if (InvalidTypes.Contains(json.Value.Name)) continue;
+                Type compiledInst = assembly.GetType($"STUExcavator.Types.{json.Value.Name}");
+                ISTU.InstanceTypes[json.Value.Hash] = compiledInst;
             }
         }
 
@@ -124,10 +181,53 @@ namespace STUExcavator {
             };
 
             using (Stream file = IO.OpenFile(guid)) {
+                if (file == null) return asset;
                 using (BinaryReader reader = new BinaryReader(file)) {
                     if (Version1.IsValidVersion(reader)) {
                         reader.BaseStream.Position = 0;
-                        asset.SerializationType = SerializationType.STUv1;  // todo:
+                        asset.SerializationType = SerializationType.STUv1;
+                        asset.STUInstances = new HashSet<string>();
+                        asset.GUIDs = new HashSet<string>();
+                        
+                        reader.BaseStream.Position = 0;
+                        
+                        // try and auto detect padding that is before a guid
+                        int maxCount = 0;
+                        for (int i = 0; i < reader.BaseStream.Length; i++) {
+                            byte b = reader.ReadByte();
+                            if (b == 255) maxCount++;
+                            if (maxCount >= 8 && b != 255) {
+                                if (reader.BaseStream.Length - reader.BaseStream.Position > 8) {
+                                    reader.BaseStream.Position -= 1; // before b
+                                    Common.STUGUID rawGUID = new Common.STUGUID(reader.ReadUInt64());
+                                    reader.BaseStream.Position -= 7; // back to after b
+                                    if (GUID.Type(rawGUID) > 1) {
+                                        asset.GUIDs.Add(rawGUID.ToString());
+                                    }
+                                }
+                            } 
+                            if (b != 255 && maxCount > 0) maxCount = 0;
+                        }
+                    } else if (type == 0xBC) {
+                        asset.SerializationType = SerializationType.MapData;
+                        asset.GUIDs = new HashSet<string>();
+                        asset.STUInstances = new HashSet<string>();
+                        STULib.Types.Map.Map map;
+                        reader.BaseStream.Position = 0;
+                        try {
+                            map = new STULib.Types.Map.Map(file, uint.MaxValue);
+                        }
+                        catch (ArgumentOutOfRangeException) {
+                            return asset;
+                        }
+                        foreach (ISTU stu in map.STUs) {
+                            asset.GUIDs = new HashSet<string>(asset.GUIDs.Concat(GetGUIDs(stu)).ToList());
+                            foreach (Common.STUInstance stuInstance in stu.Instances) {
+                                STUAttribute attr = stuInstance?.GetType().GetCustomAttributes<STUAttribute>().FirstOrDefault();
+                                if (attr == null) continue;
+                                asset.STUInstances.Add(attr.Checksum.ToString("X8"));
+                            }
+                        }
                     } else {
                         if (Version2.IsValidVersion(reader)) {   // why is there no magic, blizz pls
                             reader.BaseStream.Position = 0;
@@ -143,39 +243,17 @@ namespace STUExcavator {
                             if (stuVersion2 != null) {
                                 asset.GUIDs = GetGUIDs(stuVersion2);
                                 // broken: todo
+                                // foreach (uint typeHash in stuVersion2.TypeHashes) {
+                                //     asset.STUInstances.Add(typeHash.ToString("X8"));
+                                // }
                                 foreach (Common.STUInstance stuInstance in stuVersion2.Instances.Concat(stuVersion2.HiddenInstances)) {
-                                    STUAttribute attr = stuInstance?.GetType().GetCustomAttribute<STUAttribute>();
+                                    STUAttribute attr = stuInstance?.GetType().GetCustomAttributes<STUAttribute>().FirstOrDefault();
                                     if (attr == null) continue;
                                     asset.STUInstances.Add(attr.Checksum.ToString("X8"));
                                 }
                             }
                         }
                     }
-                    // well, this is dumb, raw guids don't have padding.
-                    //if (asset.SerializationType == SerializationType.Unknown) {  // ok so this is probably a raw file
-                    //    asset.SerializationType = SerializationType.Raw;
-                    //    asset.GUIDs = new HashSet<string>();
-                    //    reader.BaseStream.Position = 0;
-                    //    
-                    //    // try and auto detect padding that is before a guid
-                    //    // this is innacurate for types like 004
-                    //    int maxCount = 0;
-                    //    for (int i = 0; i < reader.BaseStream.Length; i++) {
-                    //        byte b = reader.ReadByte();
-                    //        if (b == 255) maxCount++;
-                    //        if (maxCount >= 8 && b != 255) {
-                    //            if (reader.BaseStream.Length - reader.BaseStream.Position > 8) {
-                    //                reader.BaseStream.Position -= 1; // before b
-                    //                Common.STUGUID rawGUID = new Common.STUGUID(reader.ReadUInt64());
-                    //                reader.BaseStream.Position -= 7; // back to after b
-                    //                if (GUID.Type(rawGUID) > 1) {
-                    //                    asset.GUIDs.Add(rawGUID.ToString());
-                    //                }
-                    //            }
-                    //        } 
-                    //        if (b != 255 && maxCount > 0) maxCount = 0;
-                    //    }
-                    //}
                 }
             }
             return asset;
@@ -200,82 +278,11 @@ namespace STUExcavator {
                 case SerializationType.Raw:
                     summary.GUIDTypes = new HashSet<string>();
                     break;
+                case SerializationType.MapData:
+                case SerializationType.STUv1:
                 case SerializationType.STUv2:
-                    // compile the classes
                     summary.GUIDTypes = new HashSet<string>();
                     summary.STUInstanceTypes = new HashSet<string>();
-                    using (Stream firstStream = IO.OpenFile(files.First())) {
-                        bool beforeChildren = Version2Comparer.GetAllChildren;
-                        Version2Comparer.GetAllChildren = true;
-                        Version2Comparer version2Comparer =
-                            ISTU.NewInstance(firstStream, uint.MaxValue, typeof(Version2Comparer)) as Version2Comparer;
-                        Version2Comparer.GetAllChildren = beforeChildren;
-
-                        StringBuilder sb = new StringBuilder();
-                        // sb.AppendLine("using static STULib.Types.Generic.Common;");  // compiler no likey
-                        // sb.AppendLine();
-                        HashSet<uint> doneEnums = new HashSet<uint>();
-                        HashSet<uint> doneInstances = new HashSet<uint>();
-                        
-                        if (version2Comparer == null) throw new InvalidDataException();
-
-                        if (version2Comparer.InstanceData == null) {
-                            summary.SerializationType = SerializationType.Unknown; // abort
-                            summary.Incomplete = true;
-                            return summary;
-                        }
-                            
-
-                        foreach (InstanceData instanceData in version2Comparer.InternalInstances.Values.Concat(
-                            version2Comparer.InstanceData)) {
-                            if (instanceData == null) continue;
-                            if (doneInstances.Contains(instanceData.Checksum)) continue;
-                            doneInstances.Add(instanceData.Checksum);
-                            ClassBuilder builder = new ClassBuilder(instanceData);
-                            string @class = builder.Build(new Dictionary<uint, string>(),
-                                new Dictionary<uint, string>(), new Dictionary<uint, string>(),
-                                $"STUExcavator.Types.x{type:X3}", false, true);
-                            sb.AppendLine(@class);
-
-                            foreach (FieldData field in instanceData.Fields) {
-                                if (!field.IsEnum && !field.IsEnumArray) continue;
-                                if (doneEnums.Contains(field.EnumChecksum)) continue;
-                                doneEnums.Add(field.EnumChecksum);
-                                EnumBuilder enumBuilder = new EnumBuilder(new STUEnumData {
-                                    Type = STUHashTool.Program.GetSizeType(field.Size),
-                                    Checksum = field.EnumChecksum
-                                });
-                                sb.AppendLine(enumBuilder.Build(new Dictionary<uint, string>(),
-                                    $"STUExcavator.Types.x{type:X3}.Enums", true));
-                            }
-                        }
-
-                        CSharpCodeProvider provider = new CSharpCodeProvider();
-                        CompilerParameters parameters = new CompilerParameters();
-                        parameters.ReferencedAssemblies.Add("STULib.dll");
-                        parameters.ReferencedAssemblies.Add("OWLib.dll");
-                        parameters.GenerateInMemory = true;
-                        CompilerResults results = provider.CompileAssemblyFromSource(parameters, sb.ToString());
-
-                        if (results.Errors.HasErrors) {
-                            StringBuilder sb2 = new StringBuilder();
-
-                            foreach (CompilerError error in results.Errors) {
-                                sb2.AppendLine($"Error ({error.ErrorNumber}): {error.ErrorText}");
-                            }
-
-                            throw new InvalidOperationException(sb2.ToString());
-                        }
-
-                        firstStream.Position = 0;
-                        Assembly assembly = results.CompiledAssembly;
-                        foreach (KeyValuePair<uint, InstanceData> inst in version2Comparer.InternalInstances) {
-                            summary.STUInstanceTypes.Add(inst.Value.Checksum.ToString("X8")); // todo: bad?
-                            Type compiledInst =
-                                assembly.GetType($"STUExcavator.Types.x{type:X3}.STU_{inst.Value.Checksum:X8}");
-                            ISTU.InstanceTypes[inst.Value.Checksum] = compiledInst;
-                        }
-                    }
                     break;
             }
             List<Asset> assets = new List<Asset>();
@@ -283,9 +290,13 @@ namespace STUExcavator {
             foreach (ulong guid in files) {
                 Asset asset = Excavate(type, guid);
                 assets.Add(asset);
-                if (asset.GUIDs != null) {
-                    foreach (string assetGUID in asset.GUIDs) {
-                        summary.GUIDTypes.Add(assetGUID.Split('.')[1]);
+                if (asset.GUIDs == null) continue;
+                foreach (string assetGUID in asset.GUIDs) {
+                    summary.GUIDTypes.Add(assetGUID.Split('.')[1]);
+                }
+                if (asset.STUInstances != null) {
+                    foreach (string instance in asset.STUInstances) {
+                        summary.STUInstanceTypes.Add(instance);
                     }
                 }
                 // broken: todo
@@ -301,10 +312,15 @@ namespace STUExcavator {
             return summary;
         }
 
-        public static HashSet<string> GetGUIDs(Version2 stu) {
+        public static HashSet<string> GetGUIDs(ISTU stu) {
             HashSet<string> guids = new HashSet<string>();
 
-            foreach (Common.STUInstance instance in stu.Instances.Concat(stu.HiddenInstances)) {
+            IEnumerable<Common.STUInstance> instances = stu.Instances;
+            if (stu.GetType() == typeof(Version2)) {
+                instances = instances.Concat(((Version2) stu).HiddenInstances);
+            }
+
+            foreach (Common.STUInstance instance in instances) {
                 // this means all instances, we don't need to recurse
                 if (instance == null) continue;
                 FieldInfo[] fields = GetFields(instance.GetType(), true);

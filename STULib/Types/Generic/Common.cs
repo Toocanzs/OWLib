@@ -1,10 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using OWLib;
 
@@ -19,7 +21,7 @@ namespace STULib.Types.Generic {
             InlineArray = 5,
             HashmapElement = 6
         }
-        
+
         public class STUInstance {
             // Version 1.0 prefix
             [STUField(STUVersionOnly = new uint[] { 1 })]
@@ -28,6 +30,7 @@ namespace STULib.Types.Generic {
             [STUField(STUVersionOnly = new uint[] { 1 })]
             public uint NextInstanceOffset;
 
+            [STUField(STUVersionOnly = new uint[] { 4 })]  // dont
             public InstanceUsage Usage = InstanceUsage.Root;
 
             // Version 2.0 prefix
@@ -60,10 +63,14 @@ namespace STULib.Types.Generic {
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         [STUOverride(0xDEADBEEF, 8)] // DUMMY
         public class STUGUID : IDemangleable, IEquatable<STUGUID> {
-            [STUField(0x1, DummySize = 8, OnlyBuffer = true)] // DUMMY
+            [STUField(0x1, DummySize = 8, OnlyBuffer = true, STUVersionOnly = new uint[] { 2 })] // DUMMY
             private ulong Padding = ulong.MaxValue;
+            
+            [STUField(0x2, DummySize = 8, STUVersionOnly = new uint[] { 1 })] // DUMMY
+            [DebuggerBrowsable(DebuggerBrowsableState.Never)]  // we need to read padding no matter what for v1
+            private ulong V1Padding = ulong.MaxValue;
 
-            [STUField(0x2, DummySize = 8)] // DUMMY
+            [STUField(0x3, DummySize = 8)] // DUMMY
             private ulong Key;
 
             public STUGUID() {
@@ -72,7 +79,7 @@ namespace STULib.Types.Generic {
             public STUGUID(ulong key) {
                 Key = key;
             }
-            
+
             public STUGUID(ulong key, ulong padding) {
                 Key = key;
                 Padding = padding;
@@ -158,7 +165,7 @@ namespace STULib.Types.Generic {
         public class STUVec3 : STUVec2 {
             [STUField(0x3, DummySize = 4)]
             public float Z;
-            
+
             public static implicit operator Vector3(STUVec3 obj) {
                 return new Vector3(obj.X, obj.Y, obj.Z);
             }
@@ -169,12 +176,12 @@ namespace STULib.Types.Generic {
         public class STUVec4 : STUVec3 {
             [STUField(0x4, DummySize = 4)]
             public float W;
-            
+
             public static implicit operator Vector4(STUVec4 obj) {
                 return new Vector4(obj.X, obj.Y, obj.Z, obj.W);
             }
         }
-        
+
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         [STUOverride(0xDEADBEEF, 16)] // DUMMY
         public class STUVec3A : STUVec4 {
@@ -185,12 +192,12 @@ namespace STULib.Types.Generic {
         public class STUEntityID {
             [STUField(0x1, DummySize = 4)]
             public uint Value;
-            
+
             public static implicit operator uint(STUEntityID obj) {
                 return obj.Value;
             }
         }
-    
+
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         [STUOverride(0xDEADBEEF, 12)] // DUMMY
         public class STUColorRGB : ISTUHashToolPrintExtender {
@@ -199,7 +206,7 @@ namespace STULib.Types.Generic {
 
             [STUField(0x2, DummySize = 4)]
             public float G;
-            
+
             [STUField(0x3, DummySize = 4)]
             public float B;
 
@@ -210,7 +217,7 @@ namespace STULib.Types.Generic {
                     (int) (obj.B * 255f)
                 );
             }
-            
+
             public string Hex() {
                 Color c = this;
                 return $"#{c.Name}";
@@ -227,7 +234,7 @@ namespace STULib.Types.Generic {
         public class STUColorRGBA : STUColorRGB {
             [STUField(0x4, DummySize = 4)]
             public float A;
-            
+
             public static implicit operator Color(STUColorRGBA obj) {
                 return Color.FromArgb (
                     (int) (obj.A * 255f),
@@ -237,29 +244,30 @@ namespace STULib.Types.Generic {
                 );
             }
         }
-        
+
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         [STUOverride(0xDEADBEEF, 16)] // DUMMY
         public class STUQuaternion {
             [STUField(0x1, DummySize = 4)]
             public float X;
-            
+
             [STUField(0x2, DummySize = 4)]
             public float Y;
-            
+
             [STUField(0x3, DummySize = 4)]
             public float Z;
-            
+
             [STUField(0x4, DummySize = 4)]
             public float W;
-            
+
             public static implicit operator Quaternion(STUQuaternion obj) {
                 return new Quaternion(obj.X, obj.Y, obj.Z, obj.W);
             }
         }
 
         public interface ISTUCustomSerializable {
-            object Deserialize(Impl.Version2 stu, Version2.STUInstanceField field, BinaryReader reader, BinaryReader metadataReader);
+            object Deserialize(object instance, ISTU stu, FieldInfo field, BinaryReader reader, BinaryReader metadataReader);
+            object DeserializeArray(object instance, ISTU stu, FieldInfo field, BinaryReader reader, BinaryReader metadataReader);
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
@@ -271,7 +279,11 @@ namespace STULib.Types.Generic {
         }
 
         public class STUHashMap<T> : Dictionary<ulong, T>, ISTUCustomSerializable  where T : STUInstance {
-            public object Deserialize(Impl.Version2 stu, Version2.STUInstanceField field, BinaryReader reader, BinaryReader metadataReader) {
+            public void Set(ulong index, T instance) {
+                this[index] = instance;
+            }
+
+            public object Deserialize(object instace, ISTU stu, FieldInfo field, BinaryReader reader, BinaryReader metadataReader) {
                 int offset = reader.ReadInt32();
                 if (offset == -1) return null;
                 metadataReader.BaseStream.Position = offset;
@@ -284,7 +296,7 @@ namespace STULib.Types.Generic {
                 for (int i = 0; i != data.Unknown2Size; ++i){
                     unknown2.Add(metadataReader.ReadUInt32());
                 }
-                
+
                 metadataReader.BaseStream.Position = data.DataOffset;
                 uint mapSize = unknown2.Last();
                 for (int i = 0; i != mapSize; ++i) {
@@ -301,17 +313,15 @@ namespace STULib.Types.Generic {
                 return this;
             }
 
-            public void Set(ulong index, T instance) {
-                this[index] = instance;
+            public object DeserializeArray(object instace, ISTU stu, FieldInfo field, BinaryReader reader, BinaryReader metadataReader) {
+                throw new NotImplementedException();
             }
         }
 
-        // [StructLayout(LayoutKind.Sequential, Pack = 4)]
-        // [STUOverride(0xDEADBEEF, 8)]
         public class STUDateAndTime : ISTUHashToolPrintExtender {
             [STUField(0x1, DummySize = 8)]
             public ulong Timestamp;
-            
+
             // todo: the timestamp doesn't work as seconds or milliseconds
 
             public DateTime ToDateTime() {
@@ -330,6 +340,19 @@ namespace STULib.Types.Generic {
             public string Print(out Color? color) {
                 color = Color.Yellow;
                 return "(STUDateAndTime doesn't work properly yet)";
+            }
+        }
+
+        public class STUUUID : ISTUCustomSerializable {
+            public Guid Value;
+
+            public object Deserialize(object instance, ISTU stu, FieldInfo field, BinaryReader reader, BinaryReader metadataReader) {
+                Value = new Guid(reader.ReadBytes(16));
+                return this;
+            }
+
+            public object DeserializeArray(object instance, ISTU stu, FieldInfo field, BinaryReader reader, BinaryReader metadataReader) {
+                throw new NotImplementedException();
             }
         }
     }

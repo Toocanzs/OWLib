@@ -82,12 +82,12 @@ namespace DataTool.FindLogic {
                 
                 OSCE[] osces = chunked.GetAllOfTypeFlat<OSCE>();
                 foreach (OSCE osce in osces) {
-                    existingSounds = FindSounds(existingSounds, osce.Data.effect, name, forceZero, toplevelKey, replacements);
+                    existingSounds = FindSounds(existingSounds, osce.Data.Sound, name, forceZero, toplevelKey, replacements);
                 }
 
                 FECE[] feces = chunked.GetAllOfTypeFlat<FECE>();
                 foreach (FECE fece in feces) {   // good variable name
-                    existingSounds = FindSounds(existingSounds, fece.Data.effect, name, forceZero, toplevelKey, replacements);
+                    existingSounds = FindSounds(existingSounds, fece.Data.Effect, name, forceZero, toplevelKey, replacements);
                 }
             }
 
@@ -127,9 +127,9 @@ namespace DataTool.FindLogic {
 
             switch (GUID.Type(soundGUID)) {
                 case 0x05F:
-                    STUSoundMaster th = GetInstance<STUSoundMaster>(soundGUID);
+                    STUVoiceMaster th = GetInstance<STUVoiceMaster>(soundGUID);
                     if (th == null) break;
-                    foreach (STUSoundHolder soundThingy in th.SoundHolders) {
+                    foreach (STUVoiceLineInstance soundThingy in th.VoiceLineInstances) {
                         string subtitle1 = null;
                         string subtitle2 = null;
                         string subtitle3 = null;
@@ -156,9 +156,15 @@ namespace DataTool.FindLogic {
                 case 0x02C:
                     STUSound sbM = GetInstance<STUSound>(soundGUID);
                     AddGUID(existingSounds, sbM?.Inner?.Soundbank, toplevelKey, null, name, forceZero);
-                    if (sbM?.Inner?.Sounds == null) break;
-                    foreach (Common.STUGUID sound in sbM.Inner.Sounds) {
-                        AddGUID(existingSounds, sound, toplevelKey, null, name, forceZero);
+                    if (sbM?.Inner?.Sounds != null) {
+                        foreach (Common.STUGUID sound in sbM.Inner.Sounds) {
+                            AddGUID(existingSounds, sound, toplevelKey, null, name, forceZero);
+                        }
+                    }
+                    if (sbM?.Inner?.SoundOther != null) {
+                        foreach (Common.STUGUID music in sbM.Inner.SoundOther) {
+                            AddGUID(existingSounds, music, toplevelKey, null, name, forceZero);
+                        }
                     }
                     break;
                 case 0x043:
@@ -195,24 +201,32 @@ namespace DataTool.FindLogic {
                     }
                     break;
                 case 0x03:
-                    STUStatescriptComponentMaster container = GetInstance<STUStatescriptComponentMaster>(soundGUID);
-                    foreach (KeyValuePair<ulong,STUStatescriptComponent> statescriptComponent in container.Components) {
-                        STUStatescriptComponent component = statescriptComponent.Value;
+                    STUEntityDefinition container = GetInstance<STUEntityDefinition>(soundGUID);
+                    foreach (KeyValuePair<ulong,STUEntityComponent> statescriptComponent in container.Components) {
+                        STUEntityComponent component = statescriptComponent.Value;
                         if (component == null) continue;
-                        if (component.GetType() == typeof(STUStatescriptSoundMaster)) {
-                            STUStatescriptSoundMaster ssSoundMaster = component as STUStatescriptSoundMaster;
-                            existingSounds = FindSounds(existingSounds, ssSoundMaster?.SoundMaster, null, forceZero, toplevelKey, replacements);
+                        if (component.GetType() == typeof(STUEntityVoiceMaster)) {
+                            STUEntityVoiceMaster ssSoundMaster = component as STUEntityVoiceMaster;
+                            existingSounds = FindSounds(existingSounds, ssSoundMaster?.VoiceMaster, null, forceZero, toplevelKey, replacements);
                         } else if (component.GetType() == typeof(STUStatescript07A)) {
                             STUStatescript07A ss07A = component as STUStatescript07A;
                             existingSounds = FindSounds(existingSounds, ss07A?.GUIDx07A, null, forceZero, toplevelKey, replacements);
-                        } else if (component.GetType() == typeof(STUStatescriptSubreferenceComponent)) {
+                        } else if (component.GetType() == typeof(STUFirstPersonComponent)) {
                             // hmm, references another 003
                             // STU_9D28963F ss9D28963F = component as STU_9D28963F;
                             // existingSounds = FindSounds(existingSounds, ss9D28963F?.m_A83C2C26, replacements);
                         } else if (component.GetType() == typeof(STUStatescript049)) {
                             STUStatescript049 ss049 = component as STUStatescript049;
                             existingSounds = FindSounds(existingSounds, ss049?.GUIDx049, null, forceZero, toplevelKey, replacements);
-                        }
+                        } 
+                        // else if (component.GetType() == typeof(STU_FD024F42)) {
+                        //     STU_FD024F42 ssFD = component as STU_FD024F42;
+                        //     if (ssFD?.m_B634821A != null) {
+                        //         foreach (STU_7B6EA463 ss7B in ssFD.m_B634821A) {
+                        //             existingSounds = FindSounds(existingSounds, ss7B.m_C71EA6BC, null, forceZero, toplevelKey, replacements);
+                        //         }
+                        //     }
+                        // }
                     }
                     break;
                 default:

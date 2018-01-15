@@ -7,15 +7,15 @@ using DataTool.DataModels;
 using DataTool.FindLogic;
 using DataTool.Flag;
 using DataTool.Helper;
+using DataTool.SaveLogic.Unlock;
+using DataTool.ToolLogic.List;
 using OWLib;
 using STULib.Types;
-using STULib.Types.Generic;
-using STULib.Types.STUUnlock;
 using static DataTool.Helper.IO;
 using static DataTool.Program;
 using static DataTool.Helper.STUHelper;
 using static DataTool.Helper.Logger;
-using Texture = DataTool.SaveLogic.Texture;
+using Texture = DataTool.FindLogic.Texture;
 
 namespace DataTool.ToolLogic.Extract {
     // syntax:
@@ -32,78 +32,47 @@ namespace DataTool.ToolLogic.Extract {
     // "{hero name}|{type}=({tag name}={tag}),{item name}"
     // Roadhog
     
-    // bases
-    
-    [DebuggerDisplay("ArgType: {" + nameof(Name) + "}")]
-    public class ArgType {
-        public string Name;
-        public List<ArgTag> Tags;
-    }
-
-    [DebuggerDisplay("ArgTag: {" + nameof(Name) + "}")]
-    public class ArgTag {
-        public string Name;
-        public List<string> Options;
-
-        public ArgTag(string name, List<string> options) {
-            Name = name;
-            Options = options;
-        }
-    }
-
-    // subs
-    [DebuggerDisplay("ArgType: {" + nameof(Name) + "}")]
-    public class CosmeticType : ArgType {
+    [DebuggerDisplay("CosmeticType: {" + nameof(Name) + "}")]
+    public class CosmeticType : QueryType {
         public CosmeticType(string name) {
             Name = name;
-            Tags = new List<ArgTag> {
-                new ArgTag("rarity", new List<string>{"common", "rare", "legendary"}),
-                new ArgTag("event", new List<string>{"base", "summergames", "halloween", "winter", "lunarnewyear", "uprising", "anniversary"})
+            Tags = new List<QueryTag> {
+                new QueryTag("rarity", new List<string>{"common", "rare", "legendary"}),
+                new QueryTag("event", new List<string>{"base", "summergames", "halloween", "winter", "lunarnewyear", "uprising", "anniversary"}),
+                new QueryTag("leagueTeam", new List<string>())
             };
         }
     }
-
-    public class ParsedArg {
-        public string Type;
-        public List<string> Allowed;
-        public List<string> Disallowed;
-        public Dictionary<string, string> Tags;
-
-
-        public ParsedArg Combine(ParsedArg second) {
-            if (second == null) return new ParsedArg { Type = Type, Allowed = Allowed, Disallowed = Disallowed, Tags = Tags};
-            Dictionary<string, string> tagsNew = Tags;
-            foreach (KeyValuePair<string,string> tag in second.Tags) {
-                tagsNew[tag.Key] = tag.Value;
-            }
-            return new ParsedArg {Type = Type, Allowed = Allowed.Concat(second.Allowed).ToList(), 
-                Disallowed = Disallowed.Concat(second.Disallowed).ToList(), Tags = tagsNew};
-        }
-
-        public bool ShouldDo(string name, Dictionary<string, string> tagVals=null) {
-            if (tagVals != null) {
-                foreach (KeyValuePair<string, string> tagVal in tagVals) {
-                    if (!Tags.ContainsKey(tagVal.Key.ToLowerInvariant())) continue;
-                    string tag = Tags[tagVal.Key.ToLowerInvariant()];
-                    if (tag.StartsWith("!")) {
-                        if (string.Equals(tag.Remove(0, 1), tagVal.Value, StringComparison.InvariantCultureIgnoreCase)) return false;
-                    } else {
-                        if (!string.Equals(tag, tagVal.Value, StringComparison.InvariantCultureIgnoreCase)) return false;
-                    }
-                }
-            }
-            string nameReal = name.ToLowerInvariant();
-            return (Allowed.Contains(nameReal) || Allowed.Contains("*")) && (!Disallowed.Contains(nameReal) || !Disallowed.Contains("*"));
-        }
-    }
     
-    [Tool("extract-unlocks", Description = "Extract all heroes sprays and icons", TrackTypes = new ushort[] { 0x75 }, CustomFlags = typeof(ExtractFlags))]
-    public class ExtractHeroUnlocks : ITool {
+    [Tool("extract-unlocks", Description = "Extract hero cosmetics", TrackTypes = new ushort[] { 0x75 }, CustomFlags = typeof(ExtractFlags))]
+    public class ExtractHeroUnlocks : QueryParser, ITool, IQueryParser {
         public void IntegrateView(object sender) {
             throw new NotImplementedException();
         }
 
-        string rootDir = "Heroes";
+        protected virtual string RootDir => "Heroes";
+        protected virtual bool NPCs => false;
+        public List<QueryType> QueryTypes => new List<QueryType> {
+            new CosmeticType("skin"),
+            new CosmeticType("icon"),
+            new CosmeticType("spray"),
+            new CosmeticType("victorypose"),
+            new CosmeticType("highlightintro"), 
+            new CosmeticType("emote"),
+            new CosmeticType("voiceline")
+        };
+        
+        public static Dictionary<string, string> HeroMapping = new Dictionary<string, string> {
+            ["soldier76"] = "soldier: 76",
+            ["soldier 76"] = "soldier: 76",
+            ["soldier"] = "soldier: 76",
+            ["lucio"] = "lúcio",
+            ["torbjorn"] = "torbjörn",
+            ["torb"] = "torbjörn",
+            ["dva"] = "d.va"
+        };
+
+        public Dictionary<string, string> QueryNameOverrides => HeroMapping;
 
         public void Parse(ICLIFlags toolFlags) {
             string basePath;
@@ -114,41 +83,39 @@ namespace DataTool.ToolLogic.Extract {
             }
 
             var heroes = GetHeroes();
-            SaveUnlocksForHeroes(flags, heroes, basePath);
+            SaveUnlocksForHeroes(flags, heroes, basePath, NPCs);
         }
 
         public List<STUHero> GetHeroes() {
             var @return = new List<STUHero>();
             foreach (ulong key in TrackedFiles[0x75]) {
                 var hero = GetInstance<STUHero>(key);
-                if (hero?.Name == null || hero.LootboxUnlocks == null) continue;
+                // if (hero?.Name == null || hero.LootboxUnlocks == null) continue;
 
                 @return.Add(hero);
             }
 
             return @return;
         }
-
-        public class SubIndentHelper : IndentHelper {
-            protected new static uint IndentStringPerLevel = 2;
-        }
         
-        public static void Help(List<ArgType> types) {
+        protected override void QueryHelp(List<QueryType> types) {
             IndentHelper indent = new IndentHelper();
             
             Log("Please specify what you want to extract:");
             Log($"{indent+1}Command format: \"{{hero name}}|{{type}}=({{tag name}}={{tag}}),{{item name}}\"");
             Log($"{indent+1}Each query should be surrounded by \", and individual queries should be seperated by spaces");
+            
+            Log($"{indent+1}All hero and item names are in your selected locale");
                         
             Log("\r\nTypes:");
-            foreach (ArgType argType in types) {
+            foreach (QueryType argType in types) {
                 Log($"{indent+1}{argType.Name}");
             }
             
             Log("\r\nTags:");
 
-            foreach (ArgType argType in types) {
-                foreach (ArgTag argTypeTag in argType.Tags) {
+            foreach (QueryType argType in types) {
+                foreach (QueryTag argTypeTag in argType.Tags) {
                     Log($"{indent+1}{argTypeTag.Name}:");
                     foreach (string option in argTypeTag.Options) {
                         Log($"{indent+2}{option}");
@@ -170,92 +137,31 @@ namespace DataTool.ToolLogic.Extract {
             // Log("https://www.youtube.com/watch?v=9Deg7VrpHbM");
         }
 
-        public void SaveUnlocksForHeroes(ICLIFlags flags, List<STUHero> heroes, string basePath) {
-            List<ArgType> types = new List<ArgType> {new CosmeticType("skin"), new CosmeticType("icon"), new CosmeticType("spray")};
+        public void SaveUnlocksForHeroes(ICLIFlags flags, IEnumerable<STUHero> heroes, string basePath, bool npc=false) {
             if (flags.Positionals.Length < 4) {
-                Help(types);
+                QueryHelp(QueryTypes);
                 return;
             }
-            string[] result = new string[flags.Positionals.Length-3];
-            Array.Copy(flags.Positionals, 3, result, 0, flags.Positionals.Length-3);
             
-            Dictionary<string, Dictionary<string, ParsedArg>> parsedTypes = new Dictionary<string, Dictionary<string, ParsedArg>>();
-            
-            foreach (string opt in result) {
-                string[] split = opt.Split('|');
+            Log("Initializing...");
 
-                string hero = split[0].ToLowerInvariant();
-                
-                string[] afterOpts = new string[split.Length-1];
-                Array.Copy(split, 1, afterOpts, 0, split.Length-1);
-                
-                parsedTypes[hero] = new Dictionary<string, ParsedArg>();
+            Dictionary<string, Dictionary<string, ParsedArg>> parsedTypes = ParseQuery(flags, QueryTypes, QueryNameOverrides);
+            if (parsedTypes == null) return;
 
-                if (afterOpts.Length == 0) {
-                    foreach (ArgType type in types) {
-                        parsedTypes[hero][type.Name] = new ParsedArg {Type = type.Name, Allowed = new List<string> {"*"}, Disallowed = new List<string>(), Tags = new Dictionary<string, string>()};
-                    }
-                    // everything for this hero
-                } else {
-                    foreach (string afterHeroOpt in afterOpts) {
-                        string[] afterSplit = afterHeroOpt.Split('=');
-                        
-                        string type = afterSplit[0].ToLowerInvariant();
-                        ArgType typeObj = types.FirstOrDefault(x => x.Name == type);
-                        if (typeObj == null) {Log($"\r\nUnknown type: {type}\r\n"); Help(types); return;}
-                        
-                        parsedTypes[hero][typeObj.Name] = new ParsedArg {Type = typeObj.Name, Allowed = new List<string>(), Disallowed = new List<string>(), Tags = new Dictionary<string, string>()};
-                        
-                        string[] items = new string[afterSplit.Length - 1];
-                        Array.Copy(afterSplit, 1, items, 0, afterSplit.Length - 1);
-                        items = string.Join("=", items).Split(',');
-                        bool isBracket = false;
-                        foreach (string item in items) {
-                            string realItem = item.ToLowerInvariant();
-                            bool nextNotBracket = false;
-                            if (item.StartsWith("(") && item.EndsWith(")")) {
-                                realItem = item.Remove(0, 1);
-                                realItem = realItem.Remove(realItem.Length-1);
-                                isBracket = true;
-                                nextNotBracket = true;
-                            } else if (item.StartsWith("(")) {
-                                isBracket = true;
-                                realItem = item.Remove(0, 1);
-                            } else if (item.EndsWith(")")) {
-                                nextNotBracket = true;
-                                realItem = item.Remove(item.Length-1);
-                            }
-                            if (!isBracket) {
-                                if (!realItem.StartsWith("!")) {
-                                    parsedTypes[hero][typeObj.Name].Allowed.Add(realItem);
-                                } else {
-                                    parsedTypes[hero][typeObj.Name].Disallowed.Add(realItem.Remove(0, 1));
-                                }
-                            } else {
-                                string[] kv = realItem.Split('=');
-                                string tagName = kv[0].ToLowerInvariant();
-                                string tagValue = kv[1].ToLowerInvariant();
-                                ArgTag tagObj = typeObj.Tags.FirstOrDefault(x => x.Name == tagName);
-                                if (tagObj == null) {Log($"\r\nUnknown tag: {tagName}\r\n"); Help(types); return;}
-                                
-                                parsedTypes[hero][typeObj.Name].Tags[tagName] = tagValue;
-                            }
-                            if (nextNotBracket) isBracket = false;
-                        }
-                        if (parsedTypes[hero][typeObj.Name].Allowed.Count == 0 &&
-                            parsedTypes[hero][typeObj.Name].Tags.Count > 0) {
-                            parsedTypes[hero][typeObj.Name].Allowed = new List<string> {"*"};
-                        }
-                    }
+            foreach (STUHero hero in heroes) {
+                string heroNameActual = GetString(hero.Name);
+                string heroFileName = GetValidFilename(heroNameActual);
+
+                if (heroFileName == null) {
+                    continue;
+                    // heroFileName = "Unknown";
+                    // heroNameActual = "Unknown";
                 }
-            }
-            foreach (var hero in heroes) {
-                var heroName = GetValidFilename(GetString(hero.Name));
-                
-                if (heroName == null) continue;
-                
+                heroNameActual = heroNameActual.TrimEnd(' ');
+                heroFileName = heroFileName.TrimEnd(' ');
+
                 Dictionary<string, ParsedArg> config = new Dictionary<string, ParsedArg>();
-                foreach (string key in new [] {GetString(hero.Name).ToLowerInvariant(), "*"}) {
+                foreach (string key in new [] {heroNameActual.ToLowerInvariant(), "*"}) {
                     if (!parsedTypes.ContainsKey(key)) continue;
                     foreach (KeyValuePair<string,ParsedArg> parsedArg in parsedTypes[key]) {
                         if (config.ContainsKey(parsedArg.Key)) {
@@ -269,74 +175,110 @@ namespace DataTool.ToolLogic.Extract {
                 if (config.Count == 0) continue;
                 
                 var unlocks = GetInstance<STUHeroUnlocks>(hero.LootboxUnlocks);
-                if (unlocks?.Unlocks == null)
+                
+                if (unlocks?.Unlocks == null && !npc)
                     continue;
-
-                List<STUAbilityInfo> abilities = new List<STUAbilityInfo>();
-                foreach (Common.STUGUID ability in hero.Abilities) {
-                    STUAbilityInfo abilityInfo = GetInstance<STUAbilityInfo>(ability);
-                    if (abilityInfo != null) abilities.Add(abilityInfo);
+                if (unlocks?.LootboxUnlocks != null && npc) {
+                    continue;
                 }
                 
-                List<ItemInfo> weaponSkins = List.ListHeroUnlocks.GetUnlocksForHero(hero.LootboxUnlocks, false).SelectMany(x => x.Value.Where(y => y.Type == "Weapon")).ToList(); // eww?
+                Log($"Processing data for {heroNameActual}...");
+                
+                List<ItemInfo> weaponSkins = ListHeroUnlocks.GetUnlocksForHero(hero.LootboxUnlocks)?.SelectMany(x => x.Value.Where(y => y.Type == "Weapon")).ToList(); // eww?
 
-                var achievementUnlocks = GatherUnlocks(unlocks.SystemUnlocks?.Unlocks?.Select(it => (ulong)it)).ToList();
+                var achievementUnlocks = GatherUnlocks(unlocks?.SystemUnlocks?.Unlocks?.Select(it => (ulong)it)).ToList();
                 foreach (ItemInfo itemInfo in achievementUnlocks) {
-                    Dictionary<string, string> tags = new Dictionary<string, string> {{"event", "base"}, {"rarity", itemInfo.Rarity}};
-                    if (itemInfo.Type == "Spray" && config.ContainsKey("spray") && config["spray"].ShouldDo(itemInfo.Name, tags)) {
-                        SaveLogic.Unlock.SprayAndImage.SaveItem(basePath, heroName, rootDir, "Achievements", null, itemInfo);
+                    if (itemInfo == null) continue;
+                    Dictionary<string, TagExpectedValue> tags = new Dictionary<string, TagExpectedValue> {{"event", new TagExpectedValue("base")}};
+                    SaveItemInfo(itemInfo, basePath, heroFileName, flags, hero, "Achievement", config, tags, weaponSkins);
+                }
+
+                if (npc) {
+                    foreach (STUHero.Skin skin in hero.Skins) {
+                        if (config.ContainsKey("skin") && config["skin"].ShouldDo(GetFileName(skin.SkinOverride))) {
+                            Skin.Save(flags, $"{basePath}\\{RootDir}", hero, skin, false);
+                        }
                     }
-                    if (itemInfo.Type == "PlayerIcon" && config.ContainsKey("icon") && config["icon"].ShouldDo(itemInfo.Name, tags)) {
-                        SaveLogic.Unlock.SprayAndImage.SaveItem(basePath, heroName, rootDir, "Achievements", null, itemInfo);
-                    }
-                    if (itemInfo.Type == "Skin" && config.ContainsKey("skin") && config["skin"].ShouldDo(itemInfo.Name, tags)) {
-                        SaveLogic.Unlock.Skin.Save(flags, basePath, hero, $"Achievement\\{itemInfo.Rarity}", itemInfo.Unlock as Skin, weaponSkins, abilities, false);
-                    }
+                    continue;
                 }
 
                 foreach (var defaultUnlocks in unlocks.Unlocks)  {
                     var dUnlocks = GatherUnlocks(defaultUnlocks.Unlocks.Select(it => (ulong) it)).ToList();
                     
                     foreach (ItemInfo itemInfo in dUnlocks) {
-                        Dictionary<string, string> tags = new Dictionary<string, string> {{"event", "base"}, {"rarity", itemInfo.Rarity}};
-                        if (itemInfo.Type == "Spray" && config.ContainsKey("spray") && config["spray"].ShouldDo(itemInfo.Name, tags)) {
-                            SaveLogic.Unlock.SprayAndImage.SaveItem(basePath, heroName, rootDir, "Standard", null, itemInfo);
-                        }
-                        if (itemInfo.Type == "PlayerIcon" && config.ContainsKey("icon") && config["icon"].ShouldDo(itemInfo.Name, tags)) {
-                            SaveLogic.Unlock.SprayAndImage.SaveItem(basePath, heroName, rootDir, "Standard", null, itemInfo);
-                        }
-                        if (itemInfo.Type == "Skin" && config.ContainsKey("skin") && config["skin"].ShouldDo(itemInfo.Name, tags)) {
-                            SaveLogic.Unlock.Skin.Save(flags, basePath, hero, itemInfo.Rarity, itemInfo.Unlock as Skin, weaponSkins, abilities, false);
-                        }
+                        Dictionary<string, TagExpectedValue> tags = new Dictionary<string, TagExpectedValue> {{"event", new TagExpectedValue("base")}};
+                        SaveItemInfo(itemInfo, basePath, heroFileName, flags, hero, "Standard", config, tags, weaponSkins);
                     }
                 }
 
                 foreach (var eventUnlocks in unlocks.LootboxUnlocks) {
-                    if (eventUnlocks?.Data?.Unlocks == null) continue;
+                    if (eventUnlocks?.Unlocks?.Unlocks == null) continue;
 
                     var eventKey = ItemEvents.GetInstance().EventsNormal[(uint)eventUnlocks.Event];
-                    var eUnlocks = eventUnlocks.Data.Unlocks.Select(it => GatherUnlock(it)).ToList();
+                    var eUnlocks = eventUnlocks.Unlocks.Unlocks.Select(it => GatherUnlock(it)).ToList();
 
                     foreach (ItemInfo itemInfo in eUnlocks) {
-                        Dictionary<string, string> tags = new Dictionary<string, string> {{"event", eventUnlocks.Event.ToString().ToLowerInvariant()}, {"rarity", itemInfo.Rarity.ToLowerInvariant()}};
-                        if (itemInfo.Type == "Spray" && config.ContainsKey("spray") && config["spray"].ShouldDo(itemInfo.Name, tags)) {
-                            SaveLogic.Unlock.SprayAndImage.SaveItem(basePath, heroName, rootDir, eventKey, null, itemInfo);
-                        }
-                        if (itemInfo.Type == "PlayerIcon" && config.ContainsKey("icon") && config["icon"].ShouldDo(itemInfo.Name, tags)) {
-                            SaveLogic.Unlock.SprayAndImage.SaveItem(basePath, heroName, rootDir, eventKey, null, itemInfo);
-                        }
-                        if (itemInfo.Type == "Skin" && config.ContainsKey("skin") && config["skin"].ShouldDo(itemInfo.Name, tags)) {
-                            SaveLogic.Unlock.Skin.Save(flags, basePath, hero, itemInfo.Rarity, itemInfo.Unlock as Skin, weaponSkins, abilities, false);
-                        }
+                        if (itemInfo == null) continue;
+                        Dictionary<string, TagExpectedValue> tags = new Dictionary<string, TagExpectedValue> {{"event", new TagExpectedValue(eventUnlocks.Event.ToString().ToLowerInvariant())}};
+                        SaveItemInfo(itemInfo, basePath, heroFileName, flags, hero, eventKey, config, tags, weaponSkins);
                     }
                 }
+                
+                Combo.ComboInfo guiInfo = new Combo.ComboInfo();
+                Combo.Find(guiInfo, hero.ImageResource1);
+                Combo.Find(guiInfo, hero.ImageResource2);
+                Combo.Find(guiInfo, hero.ImageResource3);
+                Combo.Find(guiInfo, hero.ImageResource4);
+                guiInfo.SetTextureName(hero.ImageResource1, "Icon");
+                guiInfo.SetTextureName(hero.ImageResource2, "Portrait");
+                guiInfo.SetTextureName(hero.ImageResource4, "Avatar");
+                guiInfo.SetTextureName(hero.SpectatorIcon, "SpectatorIcon");
+                SaveLogic.Combo.SaveLooseTextures(flags, Path.Combine(basePath, RootDir, heroFileName, "GUI"), guiInfo);
+            }
+        }
 
-                var heroTextures = new Dictionary<ulong, List<TextureInfo>>();
-                heroTextures = FindLogic.Texture.FindTextures(heroTextures, hero.ImageResource1, "Icon", true);
-                heroTextures = FindLogic.Texture.FindTextures(heroTextures, hero.ImageResource2, "Portrait", true);
-                heroTextures = FindLogic.Texture.FindTextures(heroTextures, hero.ImageResource3, "unknown", true); // Same as Icon for now
-                heroTextures = FindLogic.Texture.FindTextures(heroTextures, hero.ImageResource4, "Avatar", true);
-                Texture.Save(null, Path.Combine(basePath, rootDir, heroName, "GUI"), heroTextures);
+        public void SaveItemInfo(ItemInfo itemInfo, string basePath, string heroFileName, ICLIFlags flags, STUHero hero, 
+            string eventKey, Dictionary<string, ParsedArg> config, Dictionary<string, TagExpectedValue> tags, List<ItemInfo> weaponSkins) {
+            if (itemInfo?.Unlock == null) return;
+
+            if (itemInfo.Unlock.LeagueTeam != null) {
+                STULeagueTeam team = GetInstance<STULeagueTeam>(itemInfo.Unlock.LeagueTeam);
+                tags["leagueTeam"] = new TagExpectedValue(GetString(team.Abbreviation),  // NXL
+                    GetString(team.Location),  // New York
+                    GetString(team.Name),  // Excelsior
+                    $"{GetString(team.Location)} {GetString(team.Name)}",  // New York Excelsior
+                    "*");  // all
+                eventKey = "League";
+                itemInfo.Rarity = "";
+            } else {
+                tags["leagueTeam"] = new TagExpectedValue("none");
+            }
+            
+            if (eventKey == "Achievement" && itemInfo.Type == "Skin") itemInfo.Rarity = "";
+            
+            
+            tags["rarity"] = new TagExpectedValue(itemInfo.Rarity);
+            
+            if (itemInfo.Type == "Spray" && config.ContainsKey("spray") && config["spray"].ShouldDo(itemInfo.Name, tags)) {
+                SprayAndIcon.SaveItem(basePath, heroFileName, RootDir, eventKey, flags, itemInfo);
+            }
+            if (itemInfo.Type == "PlayerIcon" && config.ContainsKey("icon") && config["icon"].ShouldDo(itemInfo.Name, tags)) {
+                SprayAndIcon.SaveItem(basePath, heroFileName, RootDir, eventKey, flags, itemInfo);
+            }
+            if (itemInfo.Type == "Skin" && config.ContainsKey("skin") && config["skin"].ShouldDo(itemInfo.Name, tags)) {
+                Skin.Save(flags, $"{basePath}\\{RootDir}", hero, $"{eventKey}\\{itemInfo.Rarity}", itemInfo.Unlock as STULib.Types.STUUnlock.Skin, weaponSkins, null, false);
+            }
+            if (itemInfo.Type == "Pose" && config.ContainsKey("victorypose") && config["victorypose"].ShouldDo(itemInfo.Name, tags)) {
+                AnimationItem.SaveItem(basePath, heroFileName, RootDir, eventKey, flags, itemInfo);
+            }
+            if (itemInfo.Type == "HighlightIntro" && config.ContainsKey("highlightintro") && config["highlightintro"].ShouldDo(itemInfo.Name, tags)) {
+                AnimationItem.SaveItem(basePath, heroFileName, RootDir, eventKey, flags, itemInfo);
+            }
+            if (itemInfo.Type == "Emote" && config.ContainsKey("emote") && config["emote"].ShouldDo(itemInfo.Name, tags)) {
+                AnimationItem.SaveItem(basePath, heroFileName, RootDir, eventKey, flags, itemInfo);
+            }
+            if (itemInfo.Type == "VoiceLine" && config.ContainsKey("voiceline") && config["voiceline"].ShouldDo(itemInfo.Name, tags)) {
+                VoiceLine.SaveItem(basePath, heroFileName, RootDir, eventKey, flags, itemInfo, hero);
             }
         }
     }

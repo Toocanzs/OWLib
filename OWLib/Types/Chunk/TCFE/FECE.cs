@@ -3,12 +3,12 @@ using System.Runtime.InteropServices;
 
 namespace OWLib.Types.Chunk {
     public class FECE : IChunk {
-        public string Identifier => "FECE"; // FECE - ?
+        public string Identifier => "FECE"; // ECEF - Effect Chunk Effect
         public string RootIdentifier => "TCFE"; // EFCT - Effect
     
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         public struct Structure {
-            public ulong effect;
+            public ulong Effect;
             public byte unk1;
             public byte unk2;
             public byte unk3;
@@ -16,12 +16,11 @@ namespace OWLib.Types.Chunk {
             public uint unk5;
         }
 
-        private Structure data;
-        public Structure Data => data;
+        public Structure Data { get; private set; }
 
         public void Parse(Stream input) {
             using(BinaryReader reader = new BinaryReader(input, System.Text.Encoding.Default, true)) {
-                data = reader.Read<Structure>();
+                Data = reader.Read<Structure>();
             }
         }
     }

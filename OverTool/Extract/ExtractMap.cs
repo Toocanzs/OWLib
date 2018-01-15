@@ -206,10 +206,10 @@ namespace OverTool {
                                                             continue;
                                                         }
                                                         ComplexModelRecord cmr = (ComplexModelRecord)instance;
-                                                        mapprop.MaterialKey = cmr.Data.material.key;
-                                                        mapprop.ModelKey = cmr.Data.model.key;
-                                                        Skin.FindAnimations(cmr.Data.animationList.key, soundData, animList, replace, parsed, map, handler, bindingModels, bindingTextures, mapprop.ModelKey);
-                                                        Skin.FindAnimations(cmr.Data.secondaryAnimationList.key, soundData, animList, replace, parsed, map, handler, bindingModels, bindingTextures, mapprop.ModelKey);
+                                                        mapprop.ModelLook = cmr.Data.material.key;
+                                                        mapprop.Model = cmr.Data.model.key;
+                                                        Skin.FindAnimations(cmr.Data.animationList.key, soundData, animList, replace, parsed, map, handler, bindingModels, bindingTextures, mapprop.Model);
+                                                        Skin.FindAnimations(cmr.Data.secondaryAnimationList.key, soundData, animList, replace, parsed, map, handler, bindingModels, bindingTextures, mapprop.Model);
                                                         break;
                                                     }
                                                 }
@@ -347,10 +347,10 @@ namespace OverTool {
                                     List<ImageLayer> sublayers = kv.Value;
                                     HashSet<ulong> materialParsed = new HashSet<ulong>();
                                     foreach (ImageLayer layer in sublayers) {
-                                        if (!materialParsed.Add(layer.key)) {
+                                        if (!materialParsed.Add(layer.Key)) {
                                             continue;
                                         }
-                                        KeyValuePair<string, TextureType> pair = Skin.SaveTexture(layer.key, materialId, map, handler, outputPath, quiet, $"Textures/{GUID.Index(matpair.Key):X8}");
+                                        KeyValuePair<string, TextureType> pair = Skin.SaveTexture(layer.Key, materialId, map, handler, outputPath, quiet, $"Textures/{GUID.Index(matpair.Key):X8}");
                                         if (pair.Key == null) {
                                             continue;
                                         }

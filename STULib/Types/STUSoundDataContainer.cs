@@ -5,13 +5,13 @@ namespace STULib.Types {
     [STU(0x40DA6CDF)]
     public class STUSoundDataContainer : STUInstance {
         [STUField(0x401F5484)]
-        public STUGUID m_401F5484;
+        public STUGUID VoiceStimulus;
 
         [STUField(0x386B8E9C)]
         public STUGUID SoundbankMasterResource;
 
         [STUField(0xBA5545D6)]
-        public STUGUID m_BA5545D6;
+        public STUGUID GUIDx070;
 
         [STUField(0xDDF3EE5C)]
         public STUGUID m_DDF3EE5C;
@@ -19,7 +19,7 @@ namespace STULib.Types {
         [STUField(0x38F3ED5E)]
         public string m_38F3ED5E;
 
-        [STUField(0x4FF98D41)]
+        [STUField(0x4FF98D41, EmbeddedInstance = true)]
         public STU_C1A2DB26 m_4FF98D41;
 
         [STUField(0x9CDDC24D)]

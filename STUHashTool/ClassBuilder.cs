@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
@@ -13,6 +14,20 @@ namespace STUHashTool {
         public ClassBuilder(InstanceData instanceData) {
             InstanceData = instanceData;
         }
+        
+        public static string FirstCharToUpper(string input) {
+            switch (input)
+            {
+                case null: throw new ArgumentNullException(nameof(input));
+                case "": throw new ArgumentException($"{nameof(input)} cannot be empty", nameof(input));
+                default: return input.First().ToString().ToUpper() + input.Substring(1);
+            }
+        }
+
+        public static string FixFieldName(string name) {
+            return FirstCharToUpper(name.Substring(2)).Replace("_", "");
+        }
+
 
         public string Build(Dictionary<uint, string> instanceNames, Dictionary<uint, string> enumNames, Dictionary<uint, string> fieldNames, string @namespace="STULib.Types", bool addUsings=false, bool properTypePaths=false) {
             StringBuilder sb = new StringBuilder();
@@ -38,6 +53,14 @@ namespace STUHashTool {
                 parentName = ISTU.InstanceTypes[InstanceData.ParentChecksum].ProperName();
             }
             uint fieldCounter = 1;
+            
+            string stuAttribute = $"STU(0x{InstanceData.Checksum:X8})]";
+            if (instanceNames.ContainsKey(InstanceData.Checksum)) {
+                stuAttribute = $"STU(0x{InstanceData.Checksum:X8}, \"{instanceNames[InstanceData.Checksum]}\")]";
+            }
+            if (properTypePaths) stuAttribute = "STULib." + stuAttribute;
+            stuAttribute = "[" + stuAttribute;
+            sb.AppendLine($"{indentString}{stuAttribute}");
 
             string instanceBaseClass = properTypePaths ? "STULib.Types.Generic.Common.STUInstance" : "STUInstance";
 
@@ -49,11 +72,15 @@ namespace STUHashTool {
                 string type = Program.GetType(field, properTypePaths);
                 string fieldName = $"m_{field.Checksum:X8}";
                 string fieldTypeDef = properTypePaths ? "STULib.STUField": "STUField";
-                string fieldDefinition = $"[{fieldTypeDef}(0x{field.Checksum:X8})]";
+                string fieldDefinition = $"[{fieldTypeDef}(0x{field.Checksum:X8}";
                 if (fieldNames.ContainsKey(field.Checksum)) {
-                    fieldName = fieldNames[field.Checksum];
-                    fieldDefinition = $"[{fieldTypeDef}(0x{field.Checksum:X8}, \"{fieldName}\")]";
+                    fieldDefinition = fieldDefinition + $", \"{fieldNames[field.Checksum]}\"";
+                    fieldName = FixFieldName(fieldNames[field.Checksum]);
                 }
+                if (field.IsEmbed || field.IsEmbedArray) {
+                    fieldDefinition = fieldDefinition + ", EmbeddedInstance = true";
+                }
+                fieldDefinition = fieldDefinition + ")]";
                 if (field.SerializationType == 12 || field.SerializationType == 13) {
                     type = properTypePaths ? "STULib.Types.Generic.Common.STUGUID": "STUGUID";
                 }
@@ -66,11 +93,12 @@ namespace STUHashTool {
                     guidComment = $"  // {guidComment}";
                 }
                 if (field.IsInline || field.IsEmbed || field.IsEmbedArray || field.IsInlineArray) {  //  
-                    string instanceType = ISTU.InstanceTypes.ContainsKey(field.TypeInstanceChecksum) ? 
-                        ISTU.InstanceTypes[field.TypeInstanceChecksum].ProperName() : $"STU_{field.TypeInstanceChecksum:X8}";
+                    string instanceType = $"STU_{field.TypeInstanceChecksum:X8}";
                     if (instanceNames.ContainsKey(field.TypeInstanceChecksum)) {
                         instanceType = instanceNames[field.TypeInstanceChecksum];
                     }
+                    if (ISTU.InstanceTypes.ContainsKey(field.TypeInstanceChecksum))
+                        instanceType = ISTU.InstanceTypes[field.TypeInstanceChecksum].ProperName();
                     sb.AppendLine($"{fieldIndentString}{fieldDefinition}");
                     sb.AppendLine($"{fieldIndentString}public {instanceType}{(field.IsEmbedArray||field.IsInlineArray ? "[]" : "")} {fieldName};");
                 } else if (type == null && !field.IsEnum && !field.IsEnumArray && !field.IsHashMap) {
@@ -86,7 +114,7 @@ namespace STUHashTool {
                 } else if (field.IsHashMap) {
                     string hmInstanceName = $"STU_{field.HashMapChecksum:X8}";
                     if (instanceNames.ContainsKey(field.HashMapChecksum)) {
-                        hmInstanceName = $"{@namespace}.Enums.{instanceNames[field.HashMapChecksum]}";
+                        hmInstanceName = $"{@namespace}.{instanceNames[field.HashMapChecksum]}";
                     }
                     if (ISTU.InstanceTypes.ContainsKey(field.HashMapChecksum)) {
                         hmInstanceName = ISTU.InstanceTypes[field.HashMapChecksum].ProperName();

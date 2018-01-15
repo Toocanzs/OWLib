@@ -3,21 +3,20 @@ using System.Runtime.InteropServices;
 
 namespace OWLib.Types.Chunk {
     public class NECE : IChunk {
-        public string Identifier => "NECE"; // ECEN - Effect Child ???? ????
+        public string Identifier => "NECE"; // ECEN - Effect Chunk Entity
         public string RootIdentifier => "TCFE"; // EFCT - Effect
 
         [StructLayout(LayoutKind.Sequential, Pack = 4)]
         public struct Structure {
-            public ulong key;
-            public ulong unknown;
+            public ulong Entity;
+            public ulong EntityVariable;
         }
 
-        private Structure data;
-        public Structure Data => data;
+        public Structure Data { get; private set; }
 
         public void Parse(Stream input) {
             using (BinaryReader reader = new BinaryReader(input, System.Text.Encoding.Default, true)) {
-                data = reader.Read<Structure>();
+                Data = reader.Read<Structure>();
             }
         }
     }

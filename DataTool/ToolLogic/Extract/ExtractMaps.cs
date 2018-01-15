@@ -1,26 +1,41 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using DataTool.FindLogic;
 using DataTool.Flag;
-using OWLib;
+using DataTool.Helper;
+using DataTool.SaveLogic;
+using DataTool.ToolLogic.List;
 using STULib.Types;
-using static DataTool.Helper.IO;
 using static DataTool.Program;
 using static DataTool.Helper.STUHelper;
+using static DataTool.Helper.Logger;
 
 namespace DataTool.ToolLogic.Extract {
     [Tool("extract-maps", Description = "Extract maps", TrackTypes = new ushort[] {0x9F, 0x0BC}, CustomFlags = typeof(ExtractFlags))]
-    public class ExtractMaps : ITool {
+    public class ExtractMaps : QueryParser, ITool, IQueryParser {
         public void IntegrateView(object sender) {
             throw new NotImplementedException();
         }
 
         public void Parse(ICLIFlags toolFlags) {
-            GetMaps(toolFlags);
+            SaveMaps(toolFlags);
+        }
+        
+        protected override void QueryHelp(List<QueryType> types) {
+            IndentHelper indent = new IndentHelper();
+            Log("Please specify what you want to extract:");
+            Log($"{indent+1}Command format: \"{{map name}}\" ");
+            Log($"{indent+1}Each query should be surrounded by \", and individual queries should be seperated by spaces");
+            
+            
+            Log($"{indent+1}Maps can be listed using the \"list-maps\" mode");
+            Log($"{indent+1}All map names are in your selected locale");
+            
+            Log("\r\nExample commands: ");
+            Log($"{indent+1}\"Kings Row\"");
+            Log($"{indent+1}\"Ilios\" \"Oasis\"");
         }
 
-        public void GetMaps(ICLIFlags toolFlags) {
+        public void SaveMaps(ICLIFlags toolFlags) {
             string basePath;
             if (toolFlags is ExtractFlags flags) {
                 basePath = flags.OutputPath;
@@ -28,41 +43,34 @@ namespace DataTool.ToolLogic.Extract {
                 throw new Exception("no output path");
             }
             
+            Dictionary<string, Dictionary<string, ParsedArg>> parsedTypes = ParseQuery(flags, QueryTypes, QueryNameOverrides);
+            if (parsedTypes == null) {QueryHelp(QueryTypes); return;}
             foreach (ulong key in TrackedFiles[0x9F]) {
                 STUMap map = GetInstance<STUMap>(key);
                 if (map == null) continue;
+                ListMaps.MapInfo mapInfo = ListMaps.GetMap(key);
                 
-                string name = GetValidFilename(GetString(map.Name)) ?? $"Unknown{GUID.Index(key):X}";
-                Dictionary<ulong, List<SoundInfo>> sounds = new Dictionary<ulong, List<SoundInfo>>();
-
-                // if (map.Gamemodes != null) {
-                //     foreach (Common.STUGUID gamemodeGUID in map.Gamemodes) {
-                //         STUGamemode gamemode = GetInstance<STUGamemode>(gamemodeGUID);
-                //     }
-                // }
-
-                // string test1 = GetFileName(map.GetDataKey(1));
-                // string test2 = GetFileName(map.GetDataKey(2));
-                // string test3 = GetFileName(map.GetDataKey(8));
-                // string test4 = GetFileName(map.GetDataKey(0xB));
-                // string test5 = GetFileName(map.GetDataKey(0x11));
-                // string test6 = GetFileName(map.GetDataKey(0x10));
-                // using (Stream oneStream = OpenFile(map.GetDataKey(0xB))) {
-                //     Map mapOne = new Map(oneStream);
-                // }
-
-                string mapPath = Path.Combine(basePath, name, GUID.Index(key).ToString("X")) + Path.DirectorySeparatorChar;
-                CreateDirectoryFromFile(mapPath);
+                Dictionary<string, ParsedArg> config = new Dictionary<string, ParsedArg>();
+                foreach (string name in new [] {mapInfo.Name, mapInfo.NameB, mapInfo.UniqueName, "*"}) {
+                    if (name == null) continue;
+                    string theName = name.ToLowerInvariant();
+                    if (!parsedTypes.ContainsKey(theName)) continue;
+                    foreach (KeyValuePair<string,ParsedArg> parsedArg in parsedTypes[theName]) {
+                        if (config.ContainsKey(parsedArg.Key)) {
+                            config[parsedArg.Key] = config[parsedArg.Key].Combine(parsedArg.Value);
+                        } else {
+                            config[parsedArg.Key] = parsedArg.Value.Combine(null); // clone for safety
+                        }
+                    }
+                }
                 
-                // todo: map files with STUs are different now
-
-                if (map.SoundMasterResource != null) {
-                    sounds = Sound.FindSounds(sounds, map.SoundMasterResource);
-                }
-                if (!flags.SkipAudio) {
-                    SaveLogic.Sound.Save(toolFlags, Path.Combine(mapPath, "Sounds"), sounds);
-                }
+                if (config.Count == 0) continue;
+                
+                Map.Save(flags, map, key, basePath);
             }
         }
+
+        public List<QueryType> QueryTypes => new List<QueryType> {new QueryType {Name = "MapFakeType"}};
+        public Dictionary<string, string> QueryNameOverrides => new Dictionary<string, string>();
     }
 }

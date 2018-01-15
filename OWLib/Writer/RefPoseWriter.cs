@@ -113,21 +113,42 @@ namespace OWLib.Writer {
                         }
                     }
                     if (rot.X == -3.14159274f && rot.Y == 0 && rot.Z == 0) {
-                        rot = new APPLIB.Vector3D(0, 3.14159274f, 3.14159274f); // effectively the same but you know, eulers.
+                        rot = new Vector3D(0, 3.14159274f, 3.14159274f); // effectively the same but you know, eulers.
                     }
                     writer.WriteLine(String.Format(CultureInfo.InvariantCulture, "{0}  {1:0.000000} {2:0.000000} {3:0.000000}  {4:0.000000} {5:0.000000} {6:0.000000}  {7:0.000000} {8:0.000000} {9:0.000000}", i, pos.X, pos.Y, pos.Z, rot.X, rot.Y, rot.Z, scale.X, scale.Y, scale.Z));
                 }
             }
             return true;
         }
+        
+        public static Quaternion GetGlobalRot(lksm skeleton, short s, IReadOnlyList<short> hierarchy) {
+            if (skeleton.Matrices34Inverted.Length <= s || s == -1) return new Quaternion();
+            Matrix3x4 bone = skeleton.Matrices34Inverted[s];
+            Quaternion quat = new Quaternion(bone[0, 3], bone[0, 0], bone[0, 1], bone[0, 2]);
+            Quaternion parent = new Quaternion();
+            if (hierarchy.Count > s) parent = GetGlobalRot(skeleton, hierarchy[s], hierarchy);
+            return quat + parent;
+        }
 
-        private static Vector3 GetGlobalPos(IReadOnlyList<Matrix3x4> skeletonMatrices34Inverted, short s, IReadOnlyList<short> hierarchy) {
-            if (skeletonMatrices34Inverted.Count <= s || s == -1) return new Vector3();
-            Matrix3x4 bone = skeletonMatrices34Inverted[s];
+        public static Vector3 GetPos(lksm skeleton, int index) {
+            Matrix3x4 bone = skeleton.Matrices34[index];
             Vector3 pos = new Vector3(bone[2, 0], bone[2, 1], bone[2, 2]);
-            Vector3 parent = new Vector3();
-            if (hierarchy.Count > s) parent = GetGlobalPos(skeletonMatrices34Inverted, hierarchy[s], hierarchy);
-            return pos + parent;
+            return pos;
+        }
+        
+        public static Quaternion GetRotTest(lksm skeleton, int index) {
+            Matrix3x4 bone = skeleton.Matrices34[index];
+            Quaternion quat = new Quaternion(bone[0, 0], bone[0, 1], bone[0, 2], bone[0, 3]);
+            return quat;
+        }
+
+        public static Vector3 GetGlobalPos(IReadOnlyList<Matrix3x4> skeletonMatrices34Inverted, short s, IReadOnlyList<short> hierarchy) {
+             if (skeletonMatrices34Inverted.Count <= s || s == -1) return new Vector3();
+             Matrix3x4 bone = skeletonMatrices34Inverted[s];
+             Vector3 pos = new Vector3(bone[2, 0], bone[2, 1], bone[2, 2]);
+             Vector3 parent = new Vector3();
+             if (hierarchy.Count > s) parent = GetGlobalPos(skeletonMatrices34Inverted, hierarchy[s], hierarchy);
+             return pos + parent;
         }
 
         public bool WriteCloth(Chunked model, Stream output, HTLC cloth, uint index) {  // todo:

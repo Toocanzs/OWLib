@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DataTool.DataModels;
 using DataTool.Flag;
+using DataTool.SaveLogic.Unlock;
 using OWLib;
 using STULib.Types;
 using static DataTool.Program;
@@ -32,15 +33,15 @@ namespace DataTool.ToolLogic.Extract {
                 if (invMaster == null) continue;
 
                 var achivementUnlocks = invMaster.AchievementUnlocks?.Unlocks?.Select(it => GatherUnlock((ulong) it)).ToList();
-                SaveLogic.Unlock.SprayAndImage.SaveItems(basePath, null, "General", "Achievements", flags, achivementUnlocks);
+                SprayAndIcon.SaveItems(basePath, null, "General", "Achievements", flags, achivementUnlocks);
 
                 if (invMaster.EventGeneralUnlocks != null) {
                     foreach (var eventUnlocks in invMaster.EventGeneralUnlocks) {
-                        if (eventUnlocks?.Data?.Unlocks == null) continue;
+                        if (eventUnlocks?.Unlocks?.Unlocks == null) continue;
 
                         var eventKey = ItemEvents.GetInstance().EventsNormal[(uint)eventUnlocks.Event];
-                        var unlocks = eventUnlocks.Data.Unlocks.Select(it => GatherUnlock((ulong) it)).ToList();
-                        SaveLogic.Unlock.SprayAndImage.SaveItems(basePath, null, "General", eventKey, flags, unlocks);
+                        var unlocks = eventUnlocks.Unlocks.Unlocks.Select(it => GatherUnlock((ulong) it)).ToList();
+                        SprayAndIcon.SaveItems(basePath, null, "General", eventKey, flags, unlocks);
                     }
                 }
 
@@ -52,8 +53,8 @@ namespace DataTool.ToolLogic.Extract {
                             unlocks.Add(GatherUnlock(unlock));
                     }
 
-                    SaveLogic.Unlock.SprayAndImage.SaveItems(basePath, null, "General", "Standard", flags, unlocks.ToList());
-                    SaveLogic.Unlock.Portrait.SaveItems(basePath, null, "General", "Standard", flags, unlocks.ToList());
+                    SprayAndIcon.SaveItems(basePath, null, "General", "Standard", flags, unlocks.ToList());
+                    Portrait.SaveItems(basePath, null, "General", "Standard", flags, unlocks.ToList());
                 }
             }
         }

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using DataTool.FindLogic;
 using DataTool.Flag;
@@ -20,6 +19,8 @@ namespace DataTool.ToolLogic.Extract {
             GetLootboxes(toolFlags);
         }
 
+        public const string Container = "Lootboxes";
+
         public void GetLootboxes(ICLIFlags toolFlags) {
             string basePath;
             if (toolFlags is ExtractFlags flags) {
@@ -34,19 +35,23 @@ namespace DataTool.ToolLogic.Extract {
                 if (lootbox == null) continue;
                 
                 string name = GetValidFilename(lootbox.Event.ToString()) ?? $"Unknown{GUID.Index(key):X}";
-                
-                HashSet<ModelInfo> models = new HashSet<ModelInfo>();
-                models = Model.FindModels(models, lootbox.StateScriptComponent);
-                models = Model.FindModels(models, lootbox.Effect1);
-                models = Model.FindModels(models, lootbox.Effect2);
-                models = Model.FindModels(models, lootbox.Effect3);
-                models = Model.FindModels(models, lootbox.Effect4);
-                models = Model.FindModels(models, lootbox.Material);
-                models = Model.FindModels(models, lootbox.Material2);
 
-                foreach (ModelInfo model in models) {
-                    SaveLogic.Model.Save(flags, Path.Combine(basePath, name), model, $"Lootbox {lootbox.Event}_{GUID.Index(model.GUID):X}");
+                Combo.ComboInfo info = Combo.Find(null, lootbox.Entity);
+                Combo.Find(info, lootbox.Entity2);
+                Combo.Find(info, lootbox.Effect1);
+                Combo.Find(info, lootbox.Effect2);
+                Combo.Find(info, lootbox.Effect3);
+                Combo.Find(info, lootbox.ModelLook);
+                Combo.Find(info, lootbox.Look2);
+                
+                Combo.Find(info, 288230376151716950);  // coin chest, todo
+                // 00000000315A.00C in 000000001456.003 (288230376151716950)
+                
+                foreach (STULootBoxShopCard lootboxShopCard in lootbox.ShopCards) {
+                    Combo.Find(info, lootboxShopCard.Texture);
                 }
+                SaveLogic.Combo.SaveLooseTextures(flags, Path.Combine(basePath, Container, name, "ShopCards"), info);
+                SaveLogic.Combo.Save(flags, Path.Combine(basePath, Container, name), info);
             }
         }
     }

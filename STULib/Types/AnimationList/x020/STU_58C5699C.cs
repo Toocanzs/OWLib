@@ -4,14 +4,14 @@ using STULib.Types.AnimationList.x021;
 
 namespace STULib.Types.AnimationList.x020 {
     [STU(0x58C5699C)]
-    public class STU_58C5699C : STUAnimationListSecondaryContainer {
+    public class STU_58C5699C : STUAnimNode_Base {
         [STUField(0x0F88291F)]
         public STU_25B808BD m_0F88291F;
 
         [STUField(0xC15DCB47)]
         public STU_83C634CB[] m_C15DCB47;
 
-        [STUField(0x436BEFE6)]
+        [STUField(0x436BEFE6, EmbeddedInstance = true)]
         public STU_2F6BD485 m_436BEFE6;
     }
 }

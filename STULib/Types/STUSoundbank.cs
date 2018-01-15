@@ -1,4 +1,4 @@
-﻿using static STULib.Types.Generic.Common;
+using static STULib.Types.Generic.Common;
 
 namespace STULib.Types {
     [STU(0x04118DBD, "STUSound")]  // todo: bad naming is getting to be a problem
@@ -9,8 +9,8 @@ namespace STULib.Types {
         [STUField(0x1DBE70DD)]
         public STUGUID[] GUIDx04F;
 
-        [STUField(0x57351687)]
-        public STUSoundInner Inner;
+        [STUField(0x57351687, EmbeddedInstance = true)]
+        public STUSoundbankDataVersion Inner;
 
         [STUField(0x13523278)]
         public float m_13523278;
@@ -33,9 +33,9 @@ namespace STULib.Types {
         [STUField(0xB62657B8)]
         public byte m_B62657B8;
     }
-    
+
     [STU(0x0EBAF735)]
-    public class STUSoundInner : STUInstance {
+    public class STUSoundbankDataVersion : STUInstance {
         [STUField(0xFA1FDF0D)]
         public string m_FA1FDF0D;
 
@@ -46,10 +46,10 @@ namespace STULib.Types {
         public STUGUID[] Sounds;
 
         [STUField(0x316EBD9D)]
-        public STUGUID[] m_316EBD9D;
+        public STUGUID[] SoundOther;
 
         [STUField(0x72F2A9FA)]
-        public uint[] m_72F2A9FA;
+        public uint[] IDs;
 
         [STUField(0x5A7EC887)]
         public uint[] m_5A7EC887;

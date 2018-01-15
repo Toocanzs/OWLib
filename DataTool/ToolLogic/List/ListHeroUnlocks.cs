@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using DataTool.DataModels;
 using DataTool.Flag;
 using OWLib;
 using STULib.Types;
@@ -8,7 +9,6 @@ using static DataTool.Helper.IO;
 using static DataTool.Program;
 using static DataTool.Helper.Logger;
 using static DataTool.Helper.STUHelper;
-using DataTool.DataModels;
 
 // ReSharper disable SuspiciousTypeConversion.Global
 
@@ -20,7 +20,7 @@ namespace DataTool.ToolLogic.List {
         }
 
         public void Parse(ICLIFlags toolFlags) {
-            Dictionary<string, Dictionary<string, HashSet<ItemInfo>>> unlocks = GetUnlocks(false);
+            Dictionary<string, Dictionary<string, HashSet<ItemInfo>>> unlocks = GetUnlocks();
 
             if (toolFlags is ListFlags flags) {
                 if (flags.JSON) {
@@ -62,7 +62,7 @@ namespace DataTool.ToolLogic.List {
             }
         }
 
-        public static Dictionary<string, Dictionary<string, HashSet<ItemInfo>>> GetUnlocks(bool onlyAI) {
+        public static Dictionary<string, Dictionary<string, HashSet<ItemInfo>>> GetUnlocks() {
             Dictionary<string, Dictionary<string, HashSet<ItemInfo>>> @return = new Dictionary<string, Dictionary<string, HashSet<ItemInfo>>>();
             foreach (ulong key in TrackedFiles[0x75]) {
                 STUHero hero = GetInstance<STUHero>(key);
@@ -71,7 +71,7 @@ namespace DataTool.ToolLogic.List {
                 string name = GetString(hero.Name);
                 if (name == null) continue;
 
-                Dictionary<string, HashSet<ItemInfo>> unlocks = GetUnlocksForHero(hero.LootboxUnlocks, false);
+                Dictionary<string, HashSet<ItemInfo>> unlocks = GetUnlocksForHero(hero.LootboxUnlocks);
                 if (unlocks == null) continue;
 
                 @return[name] = unlocks;
@@ -80,19 +80,15 @@ namespace DataTool.ToolLogic.List {
             return @return;
         }
 
-        public static Dictionary<string, HashSet<ItemInfo>> GetUnlocksForHero(ulong GUID, bool onlyAI) {
+        public static Dictionary<string, HashSet<ItemInfo>> GetUnlocksForHero(ulong guid) {
             Dictionary<string, HashSet<ItemInfo>> @return = new Dictionary<string, HashSet<ItemInfo>>();
 
-            STUHeroUnlocks unlocks = GetInstance<STUHeroUnlocks>(GUID);
+            STUHeroUnlocks unlocks = GetInstance<STUHeroUnlocks>(guid);
             if (unlocks == null) return null;
-
-            if (onlyAI && unlocks.Unlocks != null) return null;
-            if (!onlyAI && unlocks.Unlocks == null) return null;
-
             @return["Default"] = GatherUnlocks(unlocks.SystemUnlocks?.Unlocks?.Select(it => (ulong)it));
 
             if (unlocks.Unlocks != null) {
-                foreach (STUHeroUnlocks.UnlockInfo defaultUnlocks in unlocks.Unlocks) {
+                foreach (STUHeroUnlocks.STUUnlocks defaultUnlocks in unlocks.Unlocks) {
                     if (defaultUnlocks?.Unlocks == null) continue;
 
                     if (!@return.ContainsKey("Standard"))
@@ -105,8 +101,8 @@ namespace DataTool.ToolLogic.List {
             }
 
             if (unlocks.LootboxUnlocks != null) {
-                foreach (STUHeroUnlocks.EventUnlockInfo eventUnlocks in unlocks.LootboxUnlocks) {
-                    if (eventUnlocks?.Data?.Unlocks == null) continue;
+                foreach (STUHeroUnlocks.STULootBoxUnlocks eventUnlocks in unlocks.LootboxUnlocks) {
+                    if (eventUnlocks?.Unlocks?.Unlocks == null) continue;
 
                     string eventKey = $"Event/{ItemEvents.GetInstance().EventsNormal[(uint)eventUnlocks.Event]}";
 
@@ -114,7 +110,7 @@ namespace DataTool.ToolLogic.List {
                         @return[eventKey] = new HashSet<ItemInfo>();
                     }
 
-                    foreach (ItemInfo info in GatherUnlocks(eventUnlocks.Data.Unlocks.Select(it => (ulong) it))) {
+                    foreach (ItemInfo info in GatherUnlocks(eventUnlocks.Unlocks.Unlocks.Select(it => (ulong) it))) {
                         @return[eventKey].Add(info);
                     }
                 }

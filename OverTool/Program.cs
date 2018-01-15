@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Text.RegularExpressions;
 using CASCLib;
 using OverTool.Flags;
 using STULib;
@@ -120,6 +121,20 @@ namespace OverTool {
                 Console.Out.WriteLine("Disabling Key auto-detection...");
             }
 
+            Regex versionRegex = new Regex(@"\d+\.\d+");
+            Match versionMatch = versionRegex.Match(config.BuildName);
+
+            if (versionMatch.Success) {
+                float version = float.Parse(versionMatch.Value);
+
+                if (version > 1.13) {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Out.WriteLine("==========\nWARNING: Overtool only works with Overwatch version 1.13 and below! You are using {0}!", config.BuildName);
+                    Console.Out.WriteLine("You must use DataTool for Overwatch 1.14 and above!\n==========");
+                    Console.ResetColor();
+                }
+            }
+
             Console.Out.WriteLine("Using Overwatch Version {0}", config.BuildName);
             CASCHandler handler = CASCHandler.OpenStorage(config);
             OwRootHandler ow = handler.Root as OwRootHandler;
@@ -151,10 +166,10 @@ namespace OverTool {
                             continue;
                         }
                         ISTU stu = ISTU.NewInstance(stream, UInt32.Parse(config.BuildName.Split('.').Last()));
-                        if (!(stu.Instances.First() is STUEncryptionKey)) {
+                        if (!(stu.Instances.FirstOrDefault() is STUEncryptionKey)) {
                             continue;
                         }
-                        STUEncryptionKey ek = stu.Instances.First() as STUEncryptionKey;
+                        STUEncryptionKey ek = stu.Instances.FirstOrDefault() as STUEncryptionKey;
                         if (ek != null && !KeyService.keys.ContainsKey(ek.LongRevKey)) {
                             KeyService.keys.Add(ek.LongRevKey, ek.KeyValue);
                             Console.Out.WriteLine("Added Encryption Key {0}, Value: {1}", ek.KeyNameProper, ek.Key);

@@ -18,17 +18,23 @@ namespace STULib {
         public static Dictionary<uint, Type> InstanceTypes => _InstanceTypes;
         public static Dictionary<uint, Type> EnumTypes => _EnumTypes;
 
-        public static Dictionary<uint, List<STUSuppressWarningAttribute>> SuppressedWarnings;
+        protected static Dictionary<uint, List<STUSuppressWarningAttribute>> SuppressedWarnings;
+
+        public HashSet<uint> TypeHashes { get; protected set; } = new HashSet<uint>();
         
+        internal Dictionary<KeyValuePair<object, FieldInfo>, int> EmbedRequests;
+        internal Dictionary<Array, int[]> EmbedArrayRequests;
+        internal List<KeyValuePair<KeyValuePair<Type, object>, KeyValuePair<uint, ulong>>> HashmapRequests; 
+
         public static bool IsSimple(Type type) {
             return type.IsPrimitive || type == typeof(string) || type == typeof(object);
         }
 
         internal static bool CheckCompatVersion(FieldInfo field, uint buildVersion) {
-            IEnumerable<BuildVersionRangeAttribute> buildVersionRanges = field.GetCustomAttributes<BuildVersionRangeAttribute>();
-            IEnumerable<BuildVersionRangeAttribute> buildVersionRangeAttributes = buildVersionRanges as BuildVersionRangeAttribute[] ?? buildVersionRanges.ToArray();
+           
+            BuildVersionRangeAttribute[] buildVersionRanges = (BuildVersionRangeAttribute[])Attribute.GetCustomAttributes(field, typeof(BuildVersionRangeAttribute), false);
 
-            return !buildVersionRangeAttributes.Any() || buildVersionRangeAttributes.Any(buildVersionRange => buildVersion >= buildVersionRange?.Min && buildVersion <= buildVersionRange.Max);
+            return !buildVersionRanges.Any() || buildVersionRanges.Any(buildVersionRange => buildVersion >= buildVersionRange?.Min && buildVersion <= buildVersionRange.Max);
         }
 
 
@@ -50,11 +56,9 @@ namespace STULib {
             List<Type> types = asm.GetTypes().Where(type => type != t && t.IsAssignableFrom(type)).ToList();
             
             foreach (Type type in types) {
-                IEnumerable<STUAttribute> stuAttributes = type.GetCustomAttributes<STUAttribute>();
-                IEnumerable<STUAttribute> attributes = stuAttributes as STUAttribute[] ?? stuAttributes.ToArray();
+                STUAttribute[] attributes = (STUAttribute[])Attribute.GetCustomAttributes(type, typeof(STUAttribute), true);
                 
-                IEnumerable<STUSuppressWarningAttribute> stuWarningAttributes = type.GetCustomAttributes<STUSuppressWarningAttribute>();
-                IEnumerable<STUSuppressWarningAttribute> warningAttributes = stuWarningAttributes as STUSuppressWarningAttribute[] ?? stuWarningAttributes.ToArray();
+                STUSuppressWarningAttribute[] warningAttributes = (STUSuppressWarningAttribute[])Attribute.GetCustomAttributes(type, typeof(STUSuppressWarningAttribute), true);
                 if (!attributes.Any()) {
                     continue;
                 }
@@ -104,9 +108,9 @@ namespace STULib {
                 STUEnumAttribute attribute = type.GetCustomAttribute<STUEnumAttribute>();
                 if (attribute == null) continue;
                 if (attribute.Checksum == 0) continue;
-                if (_EnumTypes.ContainsKey(attribute.Checksum)) {
-                    throw new Exception($"Collision of STUEnum checksums ({attribute.Checksum:X})");
-                }
+                // if (_EnumTypes.ContainsKey(attribute.Checksum)) {
+                //     throw new Exception($"Collision of STUEnum checksums ({attribute.Checksum:X})");
+                // }
                 _EnumTypes[attribute.Checksum] = type;
             }
         }
@@ -134,6 +138,7 @@ namespace STULib {
                 if (type != null) {
                     return (ISTU)Activator.CreateInstance(type, stream, owVersion);
                     // return new Impl.Version2HashComparer.Version2Comparer(stream, owVersion);  // for debug
+                    // return new Impl.Version2HashComparer.MapComparer(stream, owVersion);  // for debug
                 }
                 if (Version1.IsValidVersion(reader)) {
                     stream.Position = pos;
