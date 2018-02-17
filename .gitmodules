@@ -9,4 +9,4 @@
 	url = https://github.com/healingbrew/revorbstd
 [submodule "GUI/GLOW"]
 	path = GUI/GLOW
-	url = git@github.com:overtools/GLOW.git
+	url = https://github.com/overtools/GLOW
